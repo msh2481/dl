@@ -4,3 +4,8 @@ __pycache__
 *.gz
 *.zip
 SegTask
+ESC-50-master
+data/
+logs/
+*.zip
+.DS_STORE
