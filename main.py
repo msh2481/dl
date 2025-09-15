@@ -1,4 +1,7 @@
-import torch 
+from clip import clip 
+from datasets import load_dataset
 
-a = torch.zeros()
-print(a)
+# BACKBONE = "ViT-B/16"
+# model = clip.load(BACKBONE)
+
+dataset = load_dataset("wltjr1007/DomainNet")
