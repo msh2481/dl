@@ -50,30 +50,48 @@ class CLIPZeroShotClassifier(nn.Module):
         temperature: float = 100.0,
     ) -> None:
         super().__init__()
-        model, self.preprocess = clip.load(backbone)
-        self.visual = model.visual
-        self.transformer = model.transformer
-
-        frozen_model, _ = clip.load(backbone)
-        self.original_visual = frozen_model.visual
-        for param in self.original_visual.parameters():
-            param.requires_grad = False
-
-        self.dtype = model.dtype
+        self.model, self.preprocess = clip.load(backbone)
+        self.dtype = self.model.dtype
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model.to(self.device)
         self.classnames = list(classnames)
         self.temperature = temperature
 
         with torch.no_grad():
-            zeroshot_weights = zeroshot_classifier(model, classnames).to(model.dtype)
+            zeroshot_weights = zeroshot_classifier(self.model, classnames).to(
+                device=self.device, dtype=self.dtype
+            )
         self.head = nn.Parameter(zeroshot_weights, requires_grad=True)
 
+    @typed
     def forward(
         self, images: Float[TT, "batch_size 3 h w"]
     ) -> Float[TT, "batch_size n_classes"]:
-        images = images.to(device=self.head.device, dtype=self.dtype)
-        features = self.visual(images)
+        images = images.to(device=self.device, dtype=self.dtype)
+        features = self.model.visual(images)
         features = features / features.norm(dim=-1, keepdim=True)
+        batch_size, _, h, w = images.shape
+        assert features.shape[0] == batch_size and features.ndim == 2
+        assert self.head.ndim == 2 and self.head.shape[0] == features.shape[1]
         return self.temperature * (features @ self.head)
+
+    @typed
+    def get_energy(
+        self, images: Float[TT, "batch_size 3 h w"], texts: list[str]
+    ) -> Float[TT, "batch_size"]:
+        images = images.to(device=self.device, dtype=self.dtype)
+        features = self.model.visual(images)
+        features = features / features.norm(dim=-1, keepdim=True)
+
+        with torch.no_grad():
+            texts = clip.tokenize(texts).to(device=self.device)
+            text_embeddings = self.model.encode_text(texts)
+            text_embeddings = text_embeddings / text_embeddings.norm(
+                dim=-1, keepdim=True
+            )
+
+        assert features.shape == text_embeddings.shape
+        return (features * text_embeddings).sum(dim=-1)
 
 
 if __name__ == "__main__":
