@@ -2,6 +2,7 @@ from typing import Callable
 
 import numpy as np
 from datasets import Dataset, load_dataset
+from torch.utils.data import DataLoader
 
 
 def get_datasets(fraction: float = 1.0) -> tuple[dict[str, Dataset], list[str]]:
@@ -34,6 +35,16 @@ def get_datasets(fraction: float = 1.0) -> tuple[dict[str, Dataset], list[str]]:
 
 def get_dataloaders(
     datasets: dict[str, Dataset], preprocess: Callable, batch_size: int = 32
-):
-    # TODO: preprocess and batch the datasets
-    pass
+) -> dict[str, DataLoader]:
+    def get_dataloader(dataset: Dataset) -> DataLoader:
+        def hf_transform(example):
+            if isinstance(example["image"], list):
+                image = [preprocess(img) for img in example["image"]]
+            else:
+                image = preprocess(example["image"])
+            return {"image": image, "label": example["label"]}
+
+        processed = dataset.with_transform(hf_transform)
+        return DataLoader(processed, batch_size=batch_size, shuffle=True)
+
+    return {name: get_dataloader(dataset) for name, dataset in datasets.items()}
