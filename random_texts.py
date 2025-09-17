@@ -25,7 +25,7 @@ def zeroshot_classifier(
     model.to(device)
     with torch.no_grad():
         zeroshot_weights = []
-        for classname in tqdm(classnames):
+        for classname in tqdm(classnames, desc="Zero-shot classifier"):
             texts = [
                 template.format(classname) for template in IMAGENET_TEMPLATES
             ]  # format with class
@@ -65,7 +65,7 @@ class CLIPZeroShotClassifier(nn.Module):
 
         with torch.no_grad():
             zeroshot_weights = zeroshot_classifier(model, classnames).to(model.dtype)
-        self.head = nn.Parameter(zeroshot_weights, requires_grad=False)
+        self.head = nn.Parameter(zeroshot_weights, requires_grad=True)
 
     def forward(
         self, images: Float[TT, "batch_size 3 h w"]
