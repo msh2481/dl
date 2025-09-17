@@ -54,7 +54,7 @@ class CLIPZeroShotClassifier(nn.Module):
         self.visual = model.visual
         self.transformer = model.transformer
 
-        frozen_model = clip.load(backbone)
+        frozen_model, _ = clip.load(backbone)
         self.original_visual = frozen_model.visual
         for param in self.original_visual.parameters():
             param.requires_grad = False
@@ -67,7 +67,9 @@ class CLIPZeroShotClassifier(nn.Module):
             zeroshot_weights = zeroshot_classifier(model, classnames).to(model.dtype)
         self.head = nn.Parameter(zeroshot_weights, requires_grad=False)
 
-    def forward(self, images: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, images: Float[TT, "batch_size 3 h w"]
+    ) -> Float[TT, "batch_size n_classes"]:
         images = images.to(device=self.head.device, dtype=self.dtype)
         features = self.visual(images)
         features = features / features.norm(dim=-1, keepdim=True)
