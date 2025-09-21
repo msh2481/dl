@@ -56,7 +56,7 @@ def main(
 
     if Path(ft_model_path).exists():
         logger.info(f"Found {ft_model_path}, creating interpolations")
-        ft_model = CLIPZeroShotClassifier(classnames, use_float32=True)
+        ft_model = CLIPZeroShotClassifier(classnames, use_float32=True, init_head=False)
         ft_model.load_state_dict(torch.load(ft_model_path, map_location="cpu"))
 
         # Create interpolations
@@ -72,7 +72,9 @@ def main(
     # Check for lipsum_model.pth
     if Path(lipsum_model_path).exists():
         logger.info(f"Found {lipsum_model_path}, creating interpolations")
-        lipsum_model = CLIPZeroShotClassifier(classnames, use_float32=True)
+        lipsum_model = CLIPZeroShotClassifier(
+            classnames, use_float32=True, init_head=False
+        )
         lipsum_model.load_state_dict(torch.load(lipsum_model_path, map_location="cpu"))
 
         # Create interpolations
