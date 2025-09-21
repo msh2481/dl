@@ -24,10 +24,12 @@ def sample_random_tokens(n: int, L: int = 8) -> list[str]:
 
 def main(
     fraction: float = typer.Option(1e-3, help="Fraction of dataset to use"),
-    batch_size: int = typer.Option(128, help="Batch size for training"),
-    lr: float = typer.Option(3e-5, help="Learning rate"),
+    batch_size: int = typer.Option(256, help="Batch size for training"),
+    lr: float = typer.Option(1e-5, help="Learning rate"),
     weight_decay: float = typer.Option(0.1, help="Weight decay for optimizer"),
-    warmup_steps: int = typer.Option(500, help="Number of warmup steps"),
+    warmup_fraction: float = typer.Option(
+        0.1, help="Fraction of total steps for warmup"
+    ),
     lambda_lipsum: float = typer.Option(0.1, help="Weight for lipsum loss"),
     max_grad_norm: float = typer.Option(1.0, help="Maximum gradient norm for clipping"),
 ) -> None:
@@ -55,7 +57,7 @@ def main(
         lipsum_model.parameters(), lr=lr, weight_decay=weight_decay
     )
     total_steps = len(dataloaders["ID"])
-    warmup_steps = min(500, total_steps // 2)
+    warmup_steps = int(warmup_fraction * total_steps)
     warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
         optimizer,
         start_factor=0.1,

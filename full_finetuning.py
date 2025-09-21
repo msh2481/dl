@@ -15,10 +15,12 @@ def save_model(model: torch.nn.Module, filepath: str) -> None:
 
 def main(
     fraction: float = typer.Option(1e-3, help="Fraction of dataset to use"),
-    batch_size: int = typer.Option(128, help="Batch size for training"),
-    lr: float = typer.Option(3e-5, help="Learning rate"),
+    batch_size: int = typer.Option(256, help="Batch size for training"),
+    lr: float = typer.Option(1e-5, help="Learning rate"),
     weight_decay: float = typer.Option(0.1, help="Weight decay for optimizer"),
-    warmup_steps: int = typer.Option(500, help="Number of warmup steps"),
+    warmup_fraction: float = typer.Option(
+        0.1, help="Fraction of total steps for warmup"
+    ),
     max_grad_norm: float = typer.Option(1.0, help="Maximum gradient norm for clipping"),
 ) -> None:
     logger.info(
@@ -42,22 +44,22 @@ def main(
         ft_model.parameters(), lr=lr, weight_decay=weight_decay
     )
     total_steps = len(dataloaders["ID"])
-    actual_warmup_steps = min(warmup_steps, total_steps // 2)
-    logger.info(f"Total steps: {total_steps}, warmup steps: {actual_warmup_steps}")
+    warmup_steps = int(warmup_fraction * total_steps)
+    logger.info(f"Total steps: {total_steps}, warmup steps: {warmup_steps}")
 
     warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
         optimizer,
         start_factor=0.1,
-        total_iters=actual_warmup_steps,
+        total_iters=warmup_steps,
     )
     cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer,
-        T_max=total_steps - actual_warmup_steps,
+        T_max=total_steps - warmup_steps,
     )
     scheduler = torch.optim.lr_scheduler.SequentialLR(
         optimizer,
         schedulers=[warmup_scheduler, cosine_scheduler],
-        milestones=[actual_warmup_steps],
+        milestones=[warmup_steps],
     )
 
     pbar = tqdm(dataloaders["ID"], desc="Fine-tuning")
