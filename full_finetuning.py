@@ -19,6 +19,7 @@ def main(
     lr: float = typer.Option(3e-5, help="Learning rate"),
     weight_decay: float = typer.Option(0.1, help="Weight decay for optimizer"),
     warmup_steps: int = typer.Option(500, help="Number of warmup steps"),
+    max_grad_norm: float = typer.Option(1.0, help="Maximum gradient norm for clipping"),
 ) -> None:
     logger.info(
         f"Starting fine-tuning with fraction: {fraction}, batch size: {batch_size}, lr: {lr}"
@@ -73,6 +74,7 @@ def main(
 
         optimizer.zero_grad()
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(ft_model.parameters(), max_grad_norm)
         optimizer.step()
         scheduler.step()
 

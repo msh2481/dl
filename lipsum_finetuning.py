@@ -29,6 +29,7 @@ def main(
     weight_decay: float = typer.Option(0.1, help="Weight decay for optimizer"),
     warmup_steps: int = typer.Option(500, help="Number of warmup steps"),
     lambda_lipsum: float = typer.Option(0.1, help="Weight for lipsum loss"),
+    max_grad_norm: float = typer.Option(1.0, help="Maximum gradient norm for clipping"),
 ) -> None:
     logger.info(
         f"Starting lipsum fine-tuning with fraction: {fraction}, batch size: {batch_size}, lr: {lr}, lambda: {lambda_lipsum}"
@@ -92,6 +93,7 @@ def main(
 
         optimizer.zero_grad()
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(lipsum_model.parameters(), max_grad_norm)
         optimizer.step()
         scheduler.step()
 
