@@ -1,10 +1,15 @@
 from typing import Callable
 
 import numpy as np
+import torch
+from beartype import beartype as typed
 from datasets import Dataset, load_dataset
+from torch import nn
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 
+@typed
 def get_datasets(fraction: float = 1.0) -> tuple[dict[str, Dataset], list[str]]:
     def sample(dataset):
         return dataset.shuffle().take(int(fraction * len(dataset)))
@@ -33,6 +38,7 @@ def get_datasets(fraction: float = 1.0) -> tuple[dict[str, Dataset], list[str]]:
     return results, classnames
 
 
+@typed
 def get_dataloaders(
     datasets: dict[str, Dataset], preprocess: Callable, batch_size: int = 32
 ) -> dict[str, DataLoader]:
@@ -48,3 +54,21 @@ def get_dataloaders(
         return DataLoader(processed, batch_size=batch_size, shuffle=True)
 
     return {name: get_dataloader(dataset) for name, dataset in datasets.items()}
+
+
+@typed
+def evaluate(model: nn.Module, dataloaders: dict[str, DataLoader]) -> dict[str, float]:
+    model.eval()
+    results = {}
+    with torch.inference_mode():
+        for name, dataloader in dataloaders.items():
+            correct = 0
+            total = 0
+            for batch in tqdm(dataloader, desc=f"Evaluating {name}"):
+                images = batch["image"]
+                labels = batch["label"]
+                logits = model(images)
+                correct += (logits.argmax(dim=-1) == labels).float().sum()
+                total += len(labels)
+            results[name] = correct / total
+    return results
