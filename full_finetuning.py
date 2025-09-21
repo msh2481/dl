@@ -15,7 +15,7 @@ def save_model(model: torch.nn.Module, filepath: str) -> None:
 
 def main(
     fraction: float = typer.Option(1e-3, help="Fraction of dataset to use"),
-    batch_size: int = typer.Option(256, help="Batch size for training"),
+    batch_size: int = typer.Option(128, help="Batch size for training"),
     lr: float = typer.Option(1e-5, help="Learning rate"),
     weight_decay: float = typer.Option(0.1, help="Weight decay for optimizer"),
     warmup_fraction: float = typer.Option(
