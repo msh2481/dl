@@ -126,10 +126,6 @@ def main(
             logger.error(f"NaN/Inf total loss detected at step {step}")
             continue
 
-        pbar.set_postfix(
-            ce_loss=f"{ce_loss.item():.4f}", gap_loss=f"{gap_loss.item():.4f}"
-        )
-
         if step % 10 == 0:
             logger.info(
                 f"Step {step}, CE Loss: {ce_loss.item():.4f}, Gap Loss: {gap_loss.item():.4f}, Total: {loss.item():.4f}"
@@ -147,8 +143,11 @@ def main(
             logger.error(f"NaN/Inf gradient norm detected at step {step}: {total_norm}")
             continue
 
-        if step % 1 == 0:
-            logger.info(f"Gradient norm: {total_norm:.4f}")
+        pbar.set_postfix(
+            ce_loss=f"{ce_loss.item():.4f}",
+            gap_loss=f"{gap_loss.item():.4f}",
+            grad_norm=f"{total_norm:.3f}",
+        )
 
         optimizer.step()
         scheduler.step()

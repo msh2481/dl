@@ -98,8 +98,6 @@ def main(
             logger.info(f"Labels: {labels}")
             continue
 
-        pbar.set_postfix(loss=f"{loss.item():.4f}")
-
         if step % 10 == 0:
             logger.info(f"Step {step}, Loss: {loss.item():.4f}")
             save_model(ft_model, "ft_model.pth")
@@ -115,8 +113,7 @@ def main(
             logger.error(f"NaN/Inf gradient norm detected at step {step}: {total_norm}")
             continue
 
-        if step % 1 == 0:
-            logger.info(f"Gradient norm: {total_norm:.4f}")
+        pbar.set_postfix(loss=f"{loss.item():.4f}", grad_norm=f"{total_norm:.3f}")
 
         optimizer.step()
         scheduler.step()
