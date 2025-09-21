@@ -48,11 +48,19 @@ class CLIPZeroShotClassifier(nn.Module):
         classnames: list[str],
         backbone: str = "ViT-B/16",
         temperature: float = 1.0,
+        use_float32: bool = True,
     ) -> None:
         super().__init__()
         self.model, self.preprocess = clip.load(backbone)
-        self.dtype = self.model.dtype
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        # Convert to float32 for training stability
+        if use_float32:
+            self.model = self.model.float()
+            self.dtype = torch.float32
+        else:
+            self.dtype = self.model.dtype
+
         self.model.to(self.device)
         self.classnames = list(classnames)
         self.temperature = temperature

@@ -22,6 +22,9 @@ def main(
         0.1, help="Fraction of total steps for warmup"
     ),
     max_grad_norm: float = typer.Option(1.0, help="Maximum gradient norm for clipping"),
+    use_float32: bool = typer.Option(
+        True, help="Use float32 instead of float16 for stability"
+    ),
 ) -> None:
     logger.info(
         f"Starting fine-tuning with fraction: {fraction}, batch size: {batch_size}, lr: {lr}"
@@ -36,7 +39,7 @@ def main(
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Using device: {device}")
 
-    ft_model = CLIPZeroShotClassifier(classnames)
+    ft_model = CLIPZeroShotClassifier(classnames, use_float32=use_float32)
     logger.info(f"Model dtype: {ft_model.dtype}, device: {ft_model.device}")
     dataloaders = get_dataloaders(datasets, ft_model.preprocess, batch_size=batch_size)
     logger.info("Dataloaders created")
@@ -106,7 +109,7 @@ def main(
 
         # Check gradients before clipping
         total_norm = torch.nn.utils.clip_grad_norm_(
-            ft_model.parameters(), max_grad_norm
+            ft_model.parameters(), max_grad_norm, norm_type="inf"
         )
         if torch.isnan(total_norm) or torch.isinf(total_norm):
             logger.error(f"NaN/Inf gradient norm detected at step {step}: {total_norm}")

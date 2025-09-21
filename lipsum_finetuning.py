@@ -32,6 +32,9 @@ def main(
     ),
     lambda_lipsum: float = typer.Option(0.1, help="Weight for lipsum loss"),
     max_grad_norm: float = typer.Option(1.0, help="Maximum gradient norm for clipping"),
+    use_float32: bool = typer.Option(
+        True, help="Use float32 instead of float16 for stability"
+    ),
 ) -> None:
     logger.info(
         f"Starting lipsum fine-tuning with fraction: {fraction}, batch size: {batch_size}, lr: {lr}, lambda: {lambda_lipsum}"
@@ -46,8 +49,8 @@ def main(
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Using device: {device}")
 
-    baseline_model = CLIPZeroShotClassifier(classnames)
-    lipsum_model = CLIPZeroShotClassifier(classnames)
+    baseline_model = CLIPZeroShotClassifier(classnames, use_float32=use_float32)
+    lipsum_model = CLIPZeroShotClassifier(classnames, use_float32=use_float32)
     logger.info(f"Model dtype: {lipsum_model.dtype}, device: {lipsum_model.device}")
     dataloaders = get_dataloaders(
         datasets, lipsum_model.preprocess, batch_size=batch_size
@@ -138,7 +141,7 @@ def main(
 
         # Check gradients before clipping
         total_norm = torch.nn.utils.clip_grad_norm_(
-            lipsum_model.parameters(), max_grad_norm
+            lipsum_model.parameters(), max_grad_norm, norm_type="inf"
         )
         if torch.isnan(total_norm) or torch.isinf(total_norm):
             logger.error(f"NaN/Inf gradient norm detected at step {step}: {total_norm}")
