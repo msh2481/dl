@@ -47,7 +47,7 @@ class CLIPZeroShotClassifier(nn.Module):
         self,
         classnames: list[str],
         backbone: str = "ViT-B/16",
-        temperature: float = 100.0,
+        temperature: float = 1.0,
     ) -> None:
         super().__init__()
         self.model, self.preprocess = clip.load(backbone)
