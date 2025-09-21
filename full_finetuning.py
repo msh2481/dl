@@ -37,6 +37,7 @@ def main(
     logger.info(f"Using device: {device}")
 
     ft_model = CLIPZeroShotClassifier(classnames)
+    logger.info(f"Model dtype: {ft_model.dtype}, device: {ft_model.device}")
     dataloaders = get_dataloaders(datasets, ft_model.preprocess, batch_size=batch_size)
     logger.info("Dataloaders created")
 
@@ -66,8 +67,34 @@ def main(
     for step, batch in enumerate(pbar):
         images = batch["image"].to(device)
         labels = batch["label"].to(device)
+
+        # Check for NaN/inf in inputs
+        if torch.isnan(images).any() or torch.isinf(images).any():
+            logger.error(f"NaN/Inf detected in images at step {step}")
+            continue
+        if torch.isnan(labels).any() or torch.isinf(labels).any():
+            logger.error(f"NaN/Inf detected in labels at step {step}")
+            continue
+
         logits = ft_model(images)
+
+        # Check for NaN/inf in logits
+        if torch.isnan(logits).any() or torch.isinf(logits).any():
+            logger.error(f"NaN/Inf detected in logits at step {step}")
+            logger.info(
+                f"Logits stats: min={logits.min():.4f}, max={logits.max():.4f}, mean={logits.mean():.4f}"
+            )
+            continue
+
         loss = nn.functional.cross_entropy(logits, labels)
+
+        # Check for NaN/inf in loss
+        if torch.isnan(loss) or torch.isinf(loss):
+            logger.error(f"NaN/Inf loss detected at step {step}")
+            logger.info(f"Logits stats: min={logits.min():.4f}, max={logits.max():.4f}")
+            logger.info(f"Labels: {labels}")
+            continue
+
         pbar.set_postfix(loss=f"{loss.item():.4f}")
 
         if step % 10 == 0:
@@ -76,7 +103,18 @@ def main(
 
         optimizer.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(ft_model.parameters(), max_grad_norm)
+
+        # Check gradients before clipping
+        total_norm = torch.nn.utils.clip_grad_norm_(
+            ft_model.parameters(), max_grad_norm
+        )
+        if torch.isnan(total_norm) or torch.isinf(total_norm):
+            logger.error(f"NaN/Inf gradient norm detected at step {step}: {total_norm}")
+            continue
+
+        if step % 1 == 0:
+            logger.info(f"Gradient norm: {total_norm:.4f}")
+
         optimizer.step()
         scheduler.step()
 

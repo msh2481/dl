@@ -48,6 +48,7 @@ def main(
 
     baseline_model = CLIPZeroShotClassifier(classnames)
     lipsum_model = CLIPZeroShotClassifier(classnames)
+    logger.info(f"Model dtype: {lipsum_model.dtype}, device: {lipsum_model.device}")
     dataloaders = get_dataloaders(
         datasets, lipsum_model.preprocess, batch_size=batch_size
     )
@@ -78,25 +79,74 @@ def main(
     for step, batch in enumerate(pbar):
         images = batch["image"].to(device)
         labels = batch["label"].to(device)
+
+        # Check for NaN/inf in inputs
+        if torch.isnan(images).any() or torch.isinf(images).any():
+            logger.error(f"NaN/Inf detected in images at step {step}")
+            continue
+        if torch.isnan(labels).any() or torch.isinf(labels).any():
+            logger.error(f"NaN/Inf detected in labels at step {step}")
+            continue
+
         texts = sample_random_tokens(len(images))
         logits = lipsum_model(images)
+
+        # Check for NaN/inf in logits
+        if torch.isnan(logits).any() or torch.isinf(logits).any():
+            logger.error(f"NaN/Inf detected in logits at step {step}")
+            continue
+
         cur_energy = lipsum_model.get_energy(images, texts)
         with torch.no_grad():
             old_energy = baseline_model.get_energy(images, texts)
+
+        # Check energies for NaN/inf
+        if torch.isnan(cur_energy).any() or torch.isinf(cur_energy).any():
+            logger.error(f"NaN/Inf detected in current energy at step {step}")
+            continue
+        if torch.isnan(old_energy).any() or torch.isinf(old_energy).any():
+            logger.error(f"NaN/Inf detected in old energy at step {step}")
+            continue
+
         ce_loss = nn.functional.cross_entropy(logits, labels)
         gap_loss = nn.functional.mse_loss(cur_energy, old_energy)
         loss = ce_loss + lambda_lipsum * gap_loss
+
+        # Check losses for NaN/inf
+        if torch.isnan(ce_loss) or torch.isinf(ce_loss):
+            logger.error(f"NaN/Inf CE loss detected at step {step}")
+            continue
+        if torch.isnan(gap_loss) or torch.isinf(gap_loss):
+            logger.error(f"NaN/Inf gap loss detected at step {step}")
+            continue
+        if torch.isnan(loss) or torch.isinf(loss):
+            logger.error(f"NaN/Inf total loss detected at step {step}")
+            continue
+
         pbar.set_postfix(
             ce_loss=f"{ce_loss.item():.4f}", gap_loss=f"{gap_loss.item():.4f}"
         )
 
         if step % 10 == 0:
-            logger.info(f"Step {step}, Loss: {loss.item():.4f}")
+            logger.info(
+                f"Step {step}, CE Loss: {ce_loss.item():.4f}, Gap Loss: {gap_loss.item():.4f}, Total: {loss.item():.4f}"
+            )
             save_model(lipsum_model, "lipsum_model.pth")
 
         optimizer.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(lipsum_model.parameters(), max_grad_norm)
+
+        # Check gradients before clipping
+        total_norm = torch.nn.utils.clip_grad_norm_(
+            lipsum_model.parameters(), max_grad_norm
+        )
+        if torch.isnan(total_norm) or torch.isinf(total_norm):
+            logger.error(f"NaN/Inf gradient norm detected at step {step}: {total_norm}")
+            continue
+
+        if step % 1 == 0:
+            logger.info(f"Gradient norm: {total_norm:.4f}")
+
         optimizer.step()
         scheduler.step()
 
