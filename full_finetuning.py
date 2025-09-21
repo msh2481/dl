@@ -68,7 +68,7 @@ def main(
         loss = nn.functional.cross_entropy(logits, labels)
         pbar.set_postfix(loss=f"{loss.item():.4f}")
 
-        if step % 100 == 0:
+        if step % 10 == 0:
             logger.info(f"Step {step}, Loss: {loss.item():.4f}")
             save_model(ft_model, "ft_model.pth")
 

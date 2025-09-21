@@ -88,7 +88,8 @@ def main(
             ce_loss=f"{ce_loss.item():.4f}", gap_loss=f"{gap_loss.item():.4f}"
         )
 
-        if step % 100 == 0:
+        if step % 10 == 0:
+            logger.info(f"Step {step}, Loss: {loss.item():.4f}")
             save_model(lipsum_model, "lipsum_model.pth")
 
         optimizer.zero_grad()
