@@ -40,6 +40,9 @@ def main(
             f"{name}: {len(dataset)} samples -> {(len(dataset) + batch_size - 1) // batch_size} batches"
         )
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    logger.info(f"Using device: {device}")
+
     baseline_model = CLIPZeroShotClassifier(classnames)
     lipsum_model = CLIPZeroShotClassifier(classnames)
     dataloaders = get_dataloaders(
@@ -47,7 +50,9 @@ def main(
     )
     logger.info("Dataloaders created")
 
-    optimizer = torch.optim.AdamW(lipsum_model.parameters(), lr=3e-5, weight_decay=0.1)
+    optimizer = torch.optim.AdamW(
+        lipsum_model.parameters(), lr=lr, weight_decay=weight_decay
+    )
     total_steps = len(dataloaders["ID"])
     warmup_steps = min(500, total_steps // 2)
     warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
@@ -68,8 +73,8 @@ def main(
 
     pbar = tqdm(dataloaders["ID"], desc="Fine-tuning")
     for step, batch in enumerate(pbar):
-        images = batch["image"]
-        labels = batch["label"]
+        images = batch["image"].to(device)
+        labels = batch["label"].to(device)
         texts = sample_random_tokens(len(images))
         logits = lipsum_model(images)
         cur_energy = lipsum_model.get_energy(images, texts)

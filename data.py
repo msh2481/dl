@@ -59,14 +59,16 @@ def get_dataloaders(
 @typed
 def evaluate(model: nn.Module, dataloaders: dict[str, DataLoader]) -> dict[str, float]:
     model.eval()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
     results = {}
     with torch.inference_mode():
         for name, dataloader in dataloaders.items():
             correct = 0
             total = 0
             for batch in tqdm(dataloader, desc=f"Evaluating {name}"):
-                images = batch["image"]
-                labels = batch["label"]
+                images = batch["image"].to(device)
+                labels = batch["label"].to(device)
                 logits = model(images)
                 correct += (logits.argmax(dim=-1) == labels).float().sum()
                 total += len(labels)

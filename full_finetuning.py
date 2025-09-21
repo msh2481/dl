@@ -30,6 +30,9 @@ def main(
             f"{name}: {len(dataset)} samples -> {(len(dataset) + batch_size - 1) // batch_size} batches"
         )
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    logger.info(f"Using device: {device}")
+
     ft_model = CLIPZeroShotClassifier(classnames)
     dataloaders = get_dataloaders(datasets, ft_model.preprocess, batch_size=batch_size)
     logger.info("Dataloaders created")
@@ -58,8 +61,8 @@ def main(
 
     pbar = tqdm(dataloaders["ID"], desc="Fine-tuning")
     for step, batch in enumerate(pbar):
-        images = batch["image"]
-        labels = batch["label"]
+        images = batch["image"].to(device)
+        labels = batch["label"].to(device)
         logits = ft_model(images)
         loss = nn.functional.cross_entropy(logits, labels)
         pbar.set_postfix(loss=f"{loss.item():.4f}")
