@@ -70,7 +70,7 @@ def evaluate(model: nn.Module, dataloaders: dict[str, DataLoader]) -> dict[str, 
                 images = batch["image"].to(device)
                 labels = batch["label"].to(device)
                 logits = model(images)
-                correct += (logits.argmax(dim=-1) == labels).float().sum()
+                correct += (logits.argmax(dim=-1) == labels).float().sum().item()
                 total += len(labels)
-            results[name] = correct / total
+            results[name] = float(correct / total)
     return results
