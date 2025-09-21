@@ -47,7 +47,7 @@ class CLIPZeroShotClassifier(nn.Module):
         self,
         classnames: list[str],
         backbone: str = "ViT-B/16",
-        temperature: float = 1.0,
+        temperature: float = 100.0,
         use_float32: bool = True,
     ) -> None:
         super().__init__()
