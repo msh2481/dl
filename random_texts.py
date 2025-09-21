@@ -49,6 +49,7 @@ class CLIPZeroShotClassifier(nn.Module):
         backbone: str = "ViT-B/16",
         temperature: float = 100.0,
         use_float32: bool = True,
+        init_head: bool = True,
     ) -> None:
         super().__init__()
         self.model, self.preprocess = clip.load(backbone)
@@ -66,9 +67,14 @@ class CLIPZeroShotClassifier(nn.Module):
         self.temperature = temperature
 
         with torch.no_grad():
-            zeroshot_weights = zeroshot_classifier(self.model, classnames).to(
-                device=self.device, dtype=self.dtype
-            )
+            if init_head:
+                zeroshot_weights = zeroshot_classifier(self.model, classnames).to(
+                    device=self.device, dtype=self.dtype
+                )
+            else:
+                zeroshot_weights = torch.randn(
+                    self.model.visual.output_dim, len(classnames)
+                ).to(device=self.device, dtype=self.dtype)
         self.head = nn.Parameter(zeroshot_weights, requires_grad=True)
 
     @typed

@@ -22,7 +22,9 @@ def interpolate_models(
         interpolated_state[key] = (1 - alpha) * state1[key] + alpha * state2[key]
 
     # Create new model with same architecture as model1
-    interpolated_model = CLIPZeroShotClassifier(model1.classnames, use_float32=True)
+    interpolated_model = CLIPZeroShotClassifier(
+        model1.classnames, use_float32=True, init_head=False
+    )
     interpolated_model.load_state_dict(interpolated_state)
     return interpolated_model
 
