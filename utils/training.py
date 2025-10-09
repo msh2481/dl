@@ -53,9 +53,9 @@ class Trainer:
         self.best_val_acc = 0.0
         self.patience_counter = 0
         self.global_step = 0
-        self.scheduler: Optional[CosineAnnealingLR] = None
+        self.scheduler = None
 
-    def set_scheduler(self, scheduler: CosineAnnealingLR):
+    def set_scheduler(self, scheduler):
         """Set learning rate scheduler."""
         self.scheduler = scheduler
 
@@ -198,7 +198,7 @@ class Trainer:
                 )
                 break
 
-            # Step scheduler
+            # Step scheduler (per-epoch)
             if self.scheduler is not None:
                 self.scheduler.step()
 

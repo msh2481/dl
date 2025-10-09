@@ -20,7 +20,7 @@ import torch.nn as nn
 import typer
 from loguru import logger
 from torch.optim import AdamW
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 from torchvision import models
 
 from utils.data import get_dataloaders
@@ -77,6 +77,7 @@ def main(
     early_stopping_patience: int = typer.Option(
         10, help="Early stopping patience (epochs)"
     ),
+    warmup_epochs: int = typer.Option(5, help="Number of warmup epochs"),
     val_split: float = typer.Option(0.2, help="Validation split ratio"),
     num_workers: int = typer.Option(4, help="Number of dataloader workers"),
     seed: int = typer.Option(42, help="Random seed"),
@@ -140,8 +141,16 @@ def main(
     # Setup optimizer with actual learning rate
     optimizer = AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
-    # Setup scheduler
-    scheduler = CosineAnnealingLR(optimizer, T_max=epochs)
+    # Setup scheduler: warmup + cosine annealing
+    warmup_scheduler = LinearLR(
+        optimizer, start_factor=0.1, end_factor=1.0, total_iters=warmup_epochs
+    )
+    cosine_scheduler = CosineAnnealingLR(optimizer, T_max=epochs - warmup_epochs)
+    scheduler = SequentialLR(
+        optimizer,
+        schedulers=[warmup_scheduler, cosine_scheduler],
+        milestones=[warmup_epochs],
+    )
 
     # Initialize wandb
     use_wandb = WANDB_AVAILABLE and os.getenv("WANDB_API_KEY") is not None
