@@ -135,6 +135,7 @@ class Trainer:
         ema_decay = 2.0 / (self.ema_span + 1.0)
         self.polyak_count += 1
 
+        # Only average trainable parameters, not buffers (e.g., BatchNorm stats)
         for ema_param, polyak_param, param in zip(
             self.ema_model.parameters(),
             self.polyak_model.parameters(),
@@ -147,6 +148,16 @@ class Trainer:
             polyak_param.data.mul_((self.polyak_count - 1) / self.polyak_count).add_(
                 param.data, alpha=1.0 / self.polyak_count
             )
+
+        # Copy BatchNorm buffers (running_mean, running_var) from current model
+        # These should not be averaged
+        for ema_buffer, polyak_buffer, buffer in zip(
+            self.ema_model.buffers(),
+            self.polyak_model.buffers(),
+            self.model.buffers(),
+        ):
+            ema_buffer.data.copy_(buffer.data)
+            polyak_buffer.data.copy_(buffer.data)
 
     @torch.no_grad()
     def validate(self, model: Optional[nn.Module] = None, desc: str = "Validating") -> tuple[float, float]:
