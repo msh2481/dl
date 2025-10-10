@@ -158,6 +158,7 @@ def main(
     # Initialize wandb
     use_wandb = WANDB_AVAILABLE and os.getenv("WANDB_API_KEY") is not None
     if use_wandb:
+        logger.info("Initializing W&B logging...")
         wandb.init(
             project="animal-classification",
             config={
@@ -169,8 +170,16 @@ def main(
                 "val_split": val_split,
                 "seed": seed,
                 "architecture": "resnet18",
+                "warmup_epochs": warmup_epochs,
+                "ema_span": ema_span,
             },
         )
+        logger.info(f"W&B run: {wandb.run.name} ({wandb.run.url})")
+    else:
+        if not WANDB_AVAILABLE:
+            logger.warning("W&B not available - wandb package not installed")
+        else:
+            logger.warning("W&B disabled - WANDB_API_KEY not set")
 
     # Setup trainer
     trainer = Trainer(

@@ -314,6 +314,7 @@ def main(
     # Initialize wandb
     use_wandb = WANDB_AVAILABLE and os.getenv("WANDB_API_KEY") is not None
     if use_wandb:
+        logger.info("Initializing W&B logging...")
         wandb.init(
             project="rotation-pretraining",
             config={
@@ -324,8 +325,15 @@ def main(
                 "seed": seed,
                 "architecture": "resnet18",
                 "task": "rotation_prediction",
+                "ema_span": ema_span,
             },
         )
+        logger.info(f"W&B run: {wandb.run.name} ({wandb.run.url})")
+    else:
+        if not WANDB_AVAILABLE:
+            logger.warning("W&B not available - wandb package not installed")
+        else:
+            logger.warning("W&B disabled - WANDB_API_KEY not set")
 
     # Create checkpoint directory
     checkpoint_dir = Path("checkpoints")
