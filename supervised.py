@@ -75,7 +75,7 @@ def main(
     batch_size: int = typer.Option(32, help="Batch size"),
     save_every_n_steps: int = typer.Option(100, help="Save checkpoint every N steps"),
     early_stopping_patience: int = typer.Option(
-        30, help="Early stopping patience (epochs)"
+        3000, help="Early stopping patience (epochs)"
     ),
     warmup_epochs: int = typer.Option(5, help="Number of warmup epochs"),
     ema_span: int = typer.Option(10, help="EMA span in epochs"),
