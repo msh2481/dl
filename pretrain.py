@@ -19,7 +19,7 @@ import typer
 from loguru import logger
 from PIL import Image
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, confusion_matrix
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader, Dataset
@@ -158,12 +158,14 @@ def evaluate_linear_probe(
     train_loader: DataLoader,
     val_loader: DataLoader,
     device: torch.device,
-) -> float:
+    class_names: list,
+    use_wandb: bool = False,
+) -> tuple[float, confusion_matrix]:
     """
     Evaluate representation quality using a linear probe on labeled data.
 
     Returns:
-        Validation accuracy of the linear probe
+        Tuple of (validation accuracy, confusion matrix)
     """
     logger.info("Evaluating linear probe on labeled data...")
 
@@ -178,9 +180,29 @@ def evaluate_linear_probe(
     # Evaluate
     val_predictions = classifier.predict(val_features)
     accuracy = accuracy_score(val_labels, val_predictions)
+    conf_matrix = confusion_matrix(val_labels, val_predictions)
 
     logger.info(f"Linear probe validation accuracy: {accuracy:.4f}")
-    return accuracy
+
+    # Log confusion matrix to W&B
+    if use_wandb:
+        try:
+            import wandb
+
+            wandb.log(
+                {
+                    "eval/confusion_matrix": wandb.plot.confusion_matrix(
+                        probs=None,
+                        y_true=val_labels,
+                        preds=val_predictions,
+                        class_names=class_names,
+                    )
+                }
+            )
+        except Exception as e:
+            logger.warning(f"Failed to log confusion matrix to W&B: {e}")
+
+    return accuracy, conf_matrix
 
 
 def train_epoch(
@@ -241,7 +263,7 @@ def main(
         32, help="Batch size for linear probe evaluation"
     ),
     eval_every_n_epochs: int = typer.Option(
-        10, help="Evaluate linear probe every N epochs"
+        1, help="Evaluate linear probe every N epochs"
     ),
     num_workers: int = typer.Option(4, help="Number of dataloader workers"),
     seed: int = typer.Option(42, help="Random seed"),
@@ -363,12 +385,12 @@ def main(
 
         # Evaluate linear probe periodically
         if epoch % eval_every_n_epochs == 0 or epoch == epochs:
-            probe_acc = evaluate_linear_probe(
-                model, labeled_train_loader, labeled_val_loader, device
+            probe_acc, conf_matrix = evaluate_linear_probe(
+                model, labeled_train_loader, labeled_val_loader, device, class_names, use_wandb
             )
 
             if use_wandb:
-                wandb.log({"eval/linear_probe_acc": probe_acc})
+                wandb.log({"eval/linear_probe_acc": probe_acc, "epoch": epoch})
 
             # Save best model based on linear probe accuracy
             if probe_acc > best_probe_acc:
