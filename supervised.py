@@ -70,12 +70,12 @@ def main(
         ..., help="Path to pretrained checkpoint or 'none' for from-scratch baseline"
     ),
     lr: str = typer.Argument(..., help="Learning rate (float) or 'find' for LR finder"),
-    weight_decay: float = typer.Option(0.05, help="Weight decay for AdamW"),
+    weight_decay: float = typer.Option(0.03, help="Weight decay for AdamW"),
     epochs: int = typer.Option(100, help="Number of training epochs"),
     batch_size: int = typer.Option(32, help="Batch size"),
     save_every_n_steps: int = typer.Option(100, help="Save checkpoint every N steps"),
     early_stopping_patience: int = typer.Option(
-        10, help="Early stopping patience (epochs)"
+        30, help="Early stopping patience (epochs)"
     ),
     warmup_epochs: int = typer.Option(5, help="Number of warmup epochs"),
     val_split: float = typer.Option(0.2, help="Validation split ratio"),
