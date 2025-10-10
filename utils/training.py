@@ -133,6 +133,7 @@ class Trainer:
         """Update EMA and Polyak averaged models."""
         # EMA update: decay = 2 / (span + 1)
         ema_decay = 2.0 / (self.ema_span + 1.0)
+        self.polyak_count += 1
 
         for ema_param, polyak_param, param in zip(
             self.ema_model.parameters(),
@@ -143,7 +144,6 @@ class Trainer:
             ema_param.data.mul_(1.0 - ema_decay).add_(param.data, alpha=ema_decay)
 
             # Polyak: simple arithmetic mean
-            self.polyak_count += 1
             polyak_param.data.mul_((self.polyak_count - 1) / self.polyak_count).add_(
                 param.data, alpha=1.0 / self.polyak_count
             )
