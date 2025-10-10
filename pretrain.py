@@ -17,6 +17,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import typer
 from loguru import logger
+from PIL import Image
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score
 from torch.optim import AdamW
@@ -39,17 +40,35 @@ except ImportError:
 app = typer.Typer()
 
 
+class UnlabeledImageDataset(Dataset):
+    """Dataset for unlabeled images (no class folders)."""
+
+    def __init__(self, data_dir: str, transform):
+        self.data_dir = Path(data_dir)
+        self.image_files = sorted(self.data_dir.glob("*.jpg"), key=lambda x: int(x.stem))
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.image_files)
+
+    def __getitem__(self, idx):
+        image_path = self.image_files[idx]
+        image = Image.open(image_path).convert("RGB")
+        image = self.transform(image)
+        return image
+
+
 class RotationDataset(Dataset):
     """Dataset that applies random rotations to images for rotation prediction task."""
 
-    def __init__(self, image_folder_dataset: datasets.ImageFolder):
-        self.dataset = image_folder_dataset
+    def __init__(self, base_dataset: Dataset):
+        self.dataset = base_dataset
 
     def __len__(self):
         return len(self.dataset)
 
     def __getitem__(self, idx):
-        image, _ = self.dataset[idx]  # Ignore original label
+        image = self.dataset[idx]
 
         # Random rotation: 0, 90, 180, 270 degrees
         rotation = torch.randint(0, 4, (1,)).item()
@@ -102,10 +121,10 @@ def get_unlabeled_dataloader(
 ) -> DataLoader:
     """Create dataloader for unlabeled data with rotation task."""
     # Load images with basic transforms
-    image_folder = datasets.ImageFolder(data_dir, transform=get_unlabeled_transforms())
+    unlabeled_dataset = UnlabeledImageDataset(data_dir, transform=get_unlabeled_transforms())
 
     # Wrap with rotation dataset
-    rotation_dataset = RotationDataset(image_folder)
+    rotation_dataset = RotationDataset(unlabeled_dataset)
 
     return DataLoader(
         rotation_dataset,
