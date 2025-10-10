@@ -19,9 +19,11 @@ import torch
 import torch.nn as nn
 import typer
 from loguru import logger
+from sklearn.linear_model import LogisticRegression
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 from torchvision import models
+from tqdm import tqdm
 
 from utils.data import get_dataloaders
 from utils.lr_finder import find_lr
@@ -61,6 +63,57 @@ def load_model(checkpoint_path: str, device: torch.device) -> nn.Module:
         model.load_state_dict(state_dict)
 
     model = model.to(device)
+    return model
+
+
+@torch.no_grad()
+def extract_features_and_labels(model: nn.Module, dataloader, device: torch.device):
+    """Extract features from model without final FC layer."""
+    model.eval()
+
+    # Temporarily replace FC layer with identity
+    original_fc = model.fc
+    model.fc = nn.Identity()
+
+    all_features = []
+    all_labels = []
+
+    for images, labels in tqdm(dataloader, desc="Extracting features"):
+        images = images.to(device)
+        features = model(images)
+        all_features.append(features.cpu())
+        all_labels.append(labels)
+
+    # Restore original FC layer
+    model.fc = original_fc
+
+    return torch.cat(all_features).numpy(), torch.cat(all_labels).numpy()
+
+
+def initialize_head_with_logreg(model: nn.Module, train_loader, device: torch.device) -> nn.Module:
+    """
+    Initialize the final FC layer using LogisticRegression on extracted features.
+
+    This provides a good initialization for fine-tuning from unsupervised checkpoints.
+    """
+    # Extract features from training data
+    train_features, train_labels = extract_features_and_labels(model, train_loader, device)
+
+    # Fit LogisticRegression
+    logger.info("Fitting LogisticRegression on extracted features...")
+    clf = LogisticRegression(max_iter=1000, solver="lbfgs", n_jobs=-1)
+    clf.fit(train_features, train_labels)
+
+    # Copy weights to model's FC layer
+    # LogisticRegression: y = X @ coef_.T + intercept_
+    # PyTorch Linear: y = X @ weight.T + bias
+    # So we can directly copy: weight = coef_, bias = intercept_
+    with torch.no_grad():
+        model.fc.weight.copy_(torch.from_numpy(clf.coef_).float())
+        model.fc.bias.copy_(torch.from_numpy(clf.intercept_).float())
+
+    logger.info("Classification head initialized with LogisticRegression weights")
+
     return model
 
 
@@ -108,6 +161,11 @@ def main(
     logger.info(
         f"Model loaded with {sum(p.numel() for p in model.parameters())} parameters"
     )
+
+    # Initialize head using LogisticRegression on extracted features
+    if checkpoint != "none":
+        logger.info("Initializing classification head with LogisticRegression...")
+        model = initialize_head_with_logreg(model, train_loader, device)
 
     # Setup optimizer and criterion
     criterion = nn.CrossEntropyLoss()
