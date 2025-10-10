@@ -325,7 +325,6 @@ def main(
                 "seed": seed,
                 "architecture": "resnet18",
                 "task": "rotation_prediction",
-                "ema_span": ema_span,
             },
         )
         logger.info(f"W&B run: {wandb.run.name} ({wandb.run.url})")
