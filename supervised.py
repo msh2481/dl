@@ -78,6 +78,7 @@ def main(
         10, help="Early stopping patience (epochs)"
     ),
     warmup_epochs: int = typer.Option(5, help="Number of warmup epochs"),
+    ema_span: int = typer.Option(10, help="EMA span in epochs"),
     val_split: float = typer.Option(0.2, help="Validation split ratio"),
     num_workers: int = typer.Option(4, help="Number of dataloader workers"),
     seed: int = typer.Option(42, help="Random seed"),
@@ -145,7 +146,9 @@ def main(
     warmup_scheduler = LinearLR(
         optimizer, start_factor=0.1, end_factor=1.0, total_iters=warmup_epochs
     )
-    cosine_scheduler = CosineAnnealingLR(optimizer, T_max=epochs - warmup_epochs)
+    cosine_scheduler = CosineAnnealingLR(
+        optimizer, T_max=epochs - warmup_epochs, eta_min=0.1 * learning_rate
+    )
     scheduler = SequentialLR(
         optimizer,
         schedulers=[warmup_scheduler, cosine_scheduler],
@@ -180,6 +183,7 @@ def main(
         save_every_n_steps=save_every_n_steps,
         early_stopping_patience=early_stopping_patience,
         use_wandb=use_wandb,
+        ema_span=ema_span,
     )
     trainer.set_scheduler(scheduler)
 

@@ -2,6 +2,7 @@
 Training loop utilities.
 """
 
+import copy
 from pathlib import Path
 from typing import Optional
 
@@ -37,6 +38,7 @@ class Trainer:
         save_every_n_steps: int = 100,
         early_stopping_patience: int = 10,
         use_wandb: bool = True,
+        ema_span: int = 10,
     ):
         self.model = model
         self.train_loader = train_loader
@@ -49,11 +51,19 @@ class Trainer:
         self.save_every_n_steps = save_every_n_steps
         self.early_stopping_patience = early_stopping_patience
         self.use_wandb = use_wandb and WANDB_AVAILABLE
+        self.ema_span = ema_span
 
         self.best_val_acc = 0.0
+        self.best_val_acc_ema = 0.0
+        self.best_val_acc_polyak = 0.0
         self.patience_counter = 0
         self.global_step = 0
         self.scheduler = None
+
+        # Initialize EMA and Polyak models
+        self.ema_model = copy.deepcopy(model)
+        self.polyak_model = copy.deepcopy(model)
+        self.polyak_count = 0  # Number of updates for Polyak averaging
 
     def set_scheduler(self, scheduler):
         """Set learning rate scheduler."""
@@ -79,6 +89,9 @@ class Trainer:
             # Backward pass
             loss.backward()
             self.optimizer.step()
+
+            # Update EMA and Polyak models after optimizer step
+            self._update_averaged_models()
 
             # Track metrics
             total_loss += loss.item()
@@ -116,20 +129,42 @@ class Trainer:
 
         return avg_loss, accuracy
 
+    def _update_averaged_models(self):
+        """Update EMA and Polyak averaged models."""
+        # EMA update: decay = 2 / (span + 1)
+        ema_decay = 2.0 / (self.ema_span + 1.0)
+
+        for ema_param, polyak_param, param in zip(
+            self.ema_model.parameters(),
+            self.polyak_model.parameters(),
+            self.model.parameters(),
+        ):
+            # EMA: ema = ema * (1 - decay) + param * decay
+            ema_param.data.mul_(1.0 - ema_decay).add_(param.data, alpha=ema_decay)
+
+            # Polyak: simple arithmetic mean
+            self.polyak_count += 1
+            polyak_param.data.mul_((self.polyak_count - 1) / self.polyak_count).add_(
+                param.data, alpha=1.0 / self.polyak_count
+            )
+
     @torch.no_grad()
-    def validate(self) -> tuple[float, float]:
+    def validate(self, model: Optional[nn.Module] = None, desc: str = "Validating") -> tuple[float, float]:
         """Validate on validation set."""
-        self.model.eval()
+        if model is None:
+            model = self.model
+
+        model.eval()
         total_loss = 0.0
         all_preds = []
         all_targets = []
 
-        pbar = tqdm(self.val_loader, desc="Validating")
+        pbar = tqdm(self.val_loader, desc=desc)
 
         for inputs, targets in pbar:
             inputs, targets = inputs.to(self.device), targets.to(self.device)
 
-            outputs = self.model(inputs)
+            outputs = model(inputs)
             loss = self.criterion(outputs, targets)
 
             total_loss += loss.item()
@@ -159,14 +194,20 @@ class Trainer:
             # Train
             train_loss, train_acc = self.train_epoch(epoch)
 
-            # Validate
-            val_loss, val_acc = self.validate()
+            # Validate on current model
+            val_loss, val_acc = self.validate(self.model, desc="Val [Current]")
+
+            # Validate on EMA model
+            val_loss_ema, val_acc_ema = self.validate(self.ema_model, desc="Val [EMA]")
+
+            # Validate on Polyak model
+            val_loss_polyak, val_acc_polyak = self.validate(self.polyak_model, desc="Val [Polyak]")
 
             # Log epoch metrics
             logger.info(
                 f"Epoch {epoch}/{num_epochs} - "
                 f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f} | "
-                f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}"
+                f"Val Acc: {val_acc:.4f} / EMA: {val_acc_ema:.4f} / Polyak: {val_acc_polyak:.4f}"
             )
 
             if self.use_wandb:
@@ -177,18 +218,36 @@ class Trainer:
                         "train/epoch_acc": train_acc,
                         "val/loss": val_loss,
                         "val/acc": val_acc,
+                        "val/loss_ema": val_loss_ema,
+                        "val/acc_ema": val_acc_ema,
+                        "val/loss_polyak": val_loss_polyak,
+                        "val/acc_polyak": val_acc_polyak,
                     }
                 )
 
-            # Save best checkpoint
+            # Save best checkpoint for current model
             if val_acc > self.best_val_acc:
                 self.best_val_acc = val_acc
                 best_checkpoint_path = self.checkpoint_dir / "best.pt"
                 torch.save(self.model.state_dict(), best_checkpoint_path)
-                logger.info(f"Saved best checkpoint with val_acc: {val_acc:.4f}")
+                logger.info(f"Saved best checkpoint (current) with val_acc: {val_acc:.4f}")
                 self.patience_counter = 0
             else:
                 self.patience_counter += 1
+
+            # Save best checkpoint for EMA model
+            if val_acc_ema > self.best_val_acc_ema:
+                self.best_val_acc_ema = val_acc_ema
+                best_ema_checkpoint_path = self.checkpoint_dir / "best_ema.pt"
+                torch.save(self.ema_model.state_dict(), best_ema_checkpoint_path)
+                logger.info(f"Saved best EMA checkpoint with val_acc: {val_acc_ema:.4f}")
+
+            # Save best checkpoint for Polyak model
+            if val_acc_polyak > self.best_val_acc_polyak:
+                self.best_val_acc_polyak = val_acc_polyak
+                best_polyak_checkpoint_path = self.checkpoint_dir / "best_polyak.pt"
+                torch.save(self.polyak_model.state_dict(), best_polyak_checkpoint_path)
+                logger.info(f"Saved best Polyak checkpoint with val_acc: {val_acc_polyak:.4f}")
 
             # Early stopping
             if self.patience_counter >= self.early_stopping_patience:
@@ -202,7 +261,17 @@ class Trainer:
             if self.scheduler is not None:
                 self.scheduler.step()
 
-        # Save final checkpoint
+        # Save final checkpoints
         final_checkpoint_path = self.checkpoint_dir / "final.pt"
         torch.save(self.model.state_dict(), final_checkpoint_path)
-        logger.info(f"Training complete. Best val_acc: {self.best_val_acc:.4f}")
+
+        final_ema_checkpoint_path = self.checkpoint_dir / "final_ema.pt"
+        torch.save(self.ema_model.state_dict(), final_ema_checkpoint_path)
+
+        final_polyak_checkpoint_path = self.checkpoint_dir / "final_polyak.pt"
+        torch.save(self.polyak_model.state_dict(), final_polyak_checkpoint_path)
+
+        logger.info(f"Training complete.")
+        logger.info(f"Best val_acc (current): {self.best_val_acc:.4f}")
+        logger.info(f"Best val_acc (EMA): {self.best_val_acc_ema:.4f}")
+        logger.info(f"Best val_acc (Polyak): {self.best_val_acc_polyak:.4f}")
