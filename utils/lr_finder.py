@@ -82,7 +82,7 @@ def find_lr(
         losses.append(loss.item())
 
         # Check if loss is exploding
-        if loss.item() > best_loss * 4:
+        if loss.item() > best_loss * 400:
             logger.warning(f"Stopping early at iteration {iteration}: loss is exploding")
             break
 

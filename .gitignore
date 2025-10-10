@@ -11,3 +11,5 @@ logs/
 *.zip
 .DS_STORE
 *.png
+wandb/
+.wandb/

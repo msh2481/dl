@@ -123,7 +123,7 @@ def main(
         ..., help="Path to pretrained checkpoint or 'none' for from-scratch baseline"
     ),
     lr: str = typer.Argument(..., help="Learning rate (float) or 'find' for LR finder"),
-    weight_decay: float = typer.Option(0.03, help="Weight decay for AdamW"),
+    weight_decay: float = typer.Option(0.003, help="Weight decay for AdamW"),
     epochs: int = typer.Option(100, help="Number of training epochs"),
     batch_size: int = typer.Option(32, help="Batch size"),
     save_every_n_steps: int = typer.Option(100, help="Save checkpoint every N steps"),
@@ -174,7 +174,7 @@ def main(
     if lr == "find":
         logger.info("Running LR Finder...")
         # Use a temporary optimizer for LR finding
-        temp_optimizer = AdamW(model.parameters(), lr=1e-7, weight_decay=weight_decay)
+        temp_optimizer = AdamW(model.parameters(), lr=1e-10, weight_decay=weight_decay)
 
         find_lr(
             model=model,
@@ -182,7 +182,7 @@ def main(
             optimizer=temp_optimizer,
             criterion=criterion,
             device=device,
-            start_lr=1e-7,
+            start_lr=1e-10,
             end_lr=1.0,
             num_iter=200,
             output_path="lr_finder_plot.png",
