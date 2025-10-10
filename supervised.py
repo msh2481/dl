@@ -90,14 +90,18 @@ def extract_features_and_labels(model: nn.Module, dataloader, device: torch.devi
     return torch.cat(all_features).numpy(), torch.cat(all_labels).numpy()
 
 
-def initialize_head_with_logreg(model: nn.Module, train_loader, device: torch.device) -> nn.Module:
+def initialize_head_with_logreg(
+    model: nn.Module, train_loader, device: torch.device
+) -> nn.Module:
     """
     Initialize the final FC layer using LogisticRegression on extracted features.
 
     This provides a good initialization for fine-tuning from unsupervised checkpoints.
     """
     # Extract features from training data
-    train_features, train_labels = extract_features_and_labels(model, train_loader, device)
+    train_features, train_labels = extract_features_and_labels(
+        model, train_loader, device
+    )
 
     # Fit LogisticRegression
     logger.info("Fitting LogisticRegression on extracted features...")
@@ -124,8 +128,9 @@ def main(
     ),
     lr: str = typer.Argument(..., help="Learning rate (float) or 'find' for LR finder"),
     weight_decay: float = typer.Option(0.03, help="Weight decay for AdamW"),
+    beta2: float = typer.Option(0.99, help="Beta2 for AdamW optimizer"),
     epochs: int = typer.Option(100, help="Number of training epochs"),
-    batch_size: int = typer.Option(32, help="Batch size"),
+    batch_size: int = typer.Option(8, help="Batch size"),
     save_every_n_steps: int = typer.Option(100, help="Save checkpoint every N steps"),
     early_stopping_patience: int = typer.Option(
         3000, help="Early stopping patience (epochs)"
@@ -174,7 +179,9 @@ def main(
     if lr == "find":
         logger.info("Running LR Finder...")
         # Use a temporary optimizer for LR finding
-        temp_optimizer = AdamW(model.parameters(), lr=1e-7, weight_decay=weight_decay)
+        temp_optimizer = AdamW(
+            model.parameters(), lr=1e-7, weight_decay=weight_decay, betas=(0.9, beta2)
+        )
 
         find_lr(
             model=model,
@@ -198,7 +205,12 @@ def main(
         raise ValueError(f"Invalid learning rate: {lr}. Must be a float or 'find'")
 
     # Setup optimizer with actual learning rate
-    optimizer = AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    optimizer = AdamW(
+        model.parameters(),
+        lr=learning_rate,
+        weight_decay=weight_decay,
+        betas=(0.9, beta2),
+    )
 
     # Setup scheduler: warmup + cosine annealing
     warmup_scheduler = LinearLR(
@@ -223,6 +235,7 @@ def main(
                 "checkpoint": checkpoint,
                 "lr": learning_rate,
                 "weight_decay": weight_decay,
+                "beta2": beta2,
                 "epochs": epochs,
                 "batch_size": batch_size,
                 "val_split": val_split,
