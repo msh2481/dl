@@ -103,26 +103,51 @@ class RotationModel(nn.Module):
         return self.backbone(x)
 
 
-def get_unlabeled_transforms() -> transforms.Compose:
-    """Get transforms for unlabeled data (no augmentation except normalization)."""
-    return transforms.Compose(
-        [
-            transforms.Resize(256),
-            transforms.CenterCrop(224),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        ]
-    )
+def get_unlabeled_transforms(use_augmentation: bool = True) -> transforms.Compose:
+    """
+    Get transforms for unlabeled data.
+
+    Args:
+        use_augmentation: If True, applies data augmentation (random crop, flip, color jitter, grayscale).
+                         If False, only applies resize, center crop, and normalization.
+    """
+    if use_augmentation:
+        return transforms.Compose(
+            [
+                transforms.Resize(256),
+                transforms.RandomResizedCrop(224, scale=(0.8, 1.0)),
+                transforms.RandomHorizontalFlip(p=0.5),
+                transforms.RandomApply(
+                    [transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.1)],
+                    p=0.8
+                ),
+                transforms.RandomGrayscale(p=0.2),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            ]
+        )
+    else:
+        return transforms.Compose(
+            [
+                transforms.Resize(256),
+                transforms.CenterCrop(224),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            ]
+        )
 
 
 def get_unlabeled_dataloader(
     data_dir: str = "data/train/unlabeled",
     batch_size: int = 32,
     num_workers: int = 4,
+    use_augmentation: bool = True,
 ) -> DataLoader:
     """Create dataloader for unlabeled data with rotation task."""
-    # Load images with basic transforms
-    unlabeled_dataset = UnlabeledImageDataset(data_dir, transform=get_unlabeled_transforms())
+    # Load images with transforms
+    unlabeled_dataset = UnlabeledImageDataset(
+        data_dir, transform=get_unlabeled_transforms(use_augmentation=use_augmentation)
+    )
 
     # Wrap with rotation dataset
     rotation_dataset = RotationDataset(unlabeled_dataset)
@@ -334,6 +359,9 @@ def main(
     ),
     save_every_n_steps: int = typer.Option(100, help="Save checkpoint every N steps"),
     ema_span: int = typer.Option(10, help="EMA span in epochs"),
+    use_augmentation: bool = typer.Option(
+        True, help="Use data augmentation (random crop, flip, color jitter, grayscale)"
+    ),
     num_workers: int = typer.Option(4, help="Number of dataloader workers"),
     seed: int = typer.Option(42, help="Random seed"),
 ):
@@ -349,8 +377,9 @@ def main(
 
     # Load unlabeled data
     logger.info("Loading unlabeled data...")
+    logger.info(f"Data augmentation: {'enabled' if use_augmentation else 'disabled'}")
     unlabeled_loader = get_unlabeled_dataloader(
-        batch_size=batch_size, num_workers=num_workers
+        batch_size=batch_size, num_workers=num_workers, use_augmentation=use_augmentation
     )
     logger.info(f"Unlabeled samples: {len(unlabeled_loader.dataset)}")
 
@@ -421,6 +450,8 @@ def main(
                 "seed": seed,
                 "architecture": "resnet18",
                 "task": "rotation_prediction",
+                "use_augmentation": use_augmentation,
+                "ema_span": ema_span,
             },
         )
         logger.info(f"W&B run: {wandb.run.name} ({wandb.run.url})")
