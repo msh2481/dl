@@ -137,6 +137,12 @@ def main(
     ),
     warmup_epochs: int = typer.Option(5, help="Number of warmup epochs"),
     ema_span: int = typer.Option(10, help="EMA span in epochs"),
+    use_augmentation: bool = typer.Option(
+        True, help="Use data augmentation on training set"
+    ),
+    augmentation_strength: str = typer.Option(
+        "medium", help="Augmentation strength: 'light', 'medium', or 'strong'"
+    ),
     val_split: float = typer.Option(0.2, help="Validation split ratio"),
     num_workers: int = typer.Option(4, help="Number of dataloader workers"),
     seed: int = typer.Option(42, help="Random seed"),
@@ -153,11 +159,14 @@ def main(
 
     # Load data
     logger.info("Loading data...")
+    logger.info(f"Data augmentation: {'enabled' if use_augmentation else 'disabled'} (strength: {augmentation_strength})")
     train_loader, val_loader, class_names = get_dataloaders(
         batch_size=batch_size,
         val_split=val_split,
         num_workers=num_workers,
         seed=seed,
+        use_augmentation=use_augmentation,
+        augmentation_strength=augmentation_strength,
     )
     logger.info(f"Classes: {class_names}")
 
@@ -243,6 +252,8 @@ def main(
                 "architecture": "resnet18",
                 "warmup_epochs": warmup_epochs,
                 "ema_span": ema_span,
+                "use_augmentation": use_augmentation,
+                "augmentation_strength": augmentation_strength,
             },
         )
         logger.info(f"W&B run: {wandb.run.name} ({wandb.run.url})")
