@@ -141,7 +141,7 @@ def main(
         True, help="Use data augmentation on training set"
     ),
     augmentation_strength: str = typer.Option(
-        "medium", help="Augmentation strength: 'light', 'medium', or 'strong'"
+        "medium", help="Augmentation strength: 'light', 'medium', 'strong', or 'very_strong'"
     ),
     val_split: float = typer.Option(0.2, help="Validation split ratio"),
     num_workers: int = typer.Option(4, help="Number of dataloader workers"),

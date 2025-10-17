@@ -2,10 +2,8 @@
 Data loading utilities for supervised training.
 """
 
-from pathlib import Path
 from typing import Tuple
 
-import torch
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms
@@ -18,7 +16,7 @@ def get_transforms(train: bool = True, use_augmentation: bool = True, augmentati
     Args:
         train: If True, returns transforms with augmentation, else only normalization
         use_augmentation: If True, applies data augmentation (only used when train=True)
-        augmentation_strength: Strength of augmentation - "light", "medium", or "strong"
+        augmentation_strength: Strength of augmentation - "light", "medium", "strong", or "very_strong"
 
     Returns:
         Composed transforms
@@ -32,55 +30,123 @@ def get_transforms(train: bool = True, use_augmentation: bool = True, augmentati
         # Define augmentation strengths
         aug_params = {
             "light": {
-                "crop_scale": (0.9, 1.0),
-                "brightness": 0.1,
-                "contrast": 0.1,
-                "saturation": 0.1,
-                "hue": 0.05,
-                "grayscale_p": 0.0,
-                "color_jitter_p": 0.5,
-            },
-            "medium": {
                 "crop_scale": (0.8, 1.0),
                 "brightness": 0.2,
                 "contrast": 0.2,
                 "saturation": 0.2,
                 "hue": 0.1,
-                "grayscale_p": 0.1,
-                "color_jitter_p": 0.8,
+                "grayscale_p": 0.05,
+                "color_jitter_p": 0.6,
+                "rotation_degrees": 15,
+                "perspective_distortion": 0.0,
+                "elastic_alpha": 0.0,
+                "gaussian_blur_p": 0.0,
             },
-            "strong": {
-                "crop_scale": (0.7, 1.0),
+            "medium": {
+                "crop_scale": (0.6, 1.0),
                 "brightness": 0.4,
                 "contrast": 0.4,
                 "saturation": 0.4,
-                "hue": 0.1,
-                "grayscale_p": 0.2,
+                "hue": 0.15,
+                "grayscale_p": 0.15,
                 "color_jitter_p": 0.8,
+                "rotation_degrees": 30,
+                "perspective_distortion": 0.2,
+                "elastic_alpha": 50.0,
+                "gaussian_blur_p": 0.1,
+            },
+            "strong": {
+                "crop_scale": (0.5, 1.0),
+                "brightness": 0.5,
+                "contrast": 0.5,
+                "saturation": 0.5,
+                "hue": 0.2,
+                "grayscale_p": 0.25,
+                "color_jitter_p": 0.9,
+                "rotation_degrees": 45,
+                "perspective_distortion": 0.3,
+                "elastic_alpha": 100.0,
+                "gaussian_blur_p": 0.2,
+            },
+            "very_strong": {
+                "crop_scale": (0.4, 1.0),
+                "brightness": 0.6,
+                "contrast": 0.6,
+                "saturation": 0.6,
+                "hue": 0.25,
+                "grayscale_p": 0.3,
+                "color_jitter_p": 0.95,
+                "rotation_degrees": 60,
+                "perspective_distortion": 0.4,
+                "elastic_alpha": 150.0,
+                "gaussian_blur_p": 0.3,
             },
         }
 
         params = aug_params.get(augmentation_strength, aug_params["medium"])
 
-        return transforms.Compose(
-            [
-                transforms.Resize(256),
-                transforms.RandomResizedCrop(224, scale=params["crop_scale"]),
-                transforms.RandomHorizontalFlip(p=0.5),
-                transforms.RandomApply(
-                    [transforms.ColorJitter(
-                        brightness=params["brightness"],
-                        contrast=params["contrast"],
-                        saturation=params["saturation"],
-                        hue=params["hue"]
-                    )],
-                    p=params["color_jitter_p"]
-                ),
-                transforms.RandomGrayscale(p=params["grayscale_p"]),
-                transforms.ToTensor(),
-                normalize,
-            ]
+        transform_list = [
+            transforms.Resize(256),
+            transforms.RandomResizedCrop(224, scale=params["crop_scale"]),
+            transforms.RandomHorizontalFlip(p=0.5),
+        ]
+
+        # Add rotation
+        if params["rotation_degrees"] > 0:
+            transform_list.append(
+                transforms.RandomRotation(degrees=params["rotation_degrees"], fill=0)
+            )
+
+        # Add perspective distortion
+        if params["perspective_distortion"] > 0:
+            transform_list.append(
+                transforms.RandomPerspective(
+                    distortion_scale=params["perspective_distortion"], p=0.5, fill=0
+                )
+            )
+
+        # Add color jitter
+        transform_list.append(
+            transforms.RandomApply(
+                [transforms.ColorJitter(
+                    brightness=params["brightness"],
+                    contrast=params["contrast"],
+                    saturation=params["saturation"],
+                    hue=params["hue"]
+                )],
+                p=params["color_jitter_p"]
+            )
         )
+
+        # Add grayscale
+        transform_list.append(transforms.RandomGrayscale(p=params["grayscale_p"]))
+
+        # Convert to tensor before elastic transform
+        transform_list.append(transforms.ToTensor())
+
+        # Add elastic transform (operates on tensors)
+        if params["elastic_alpha"] > 0:
+            transform_list.append(
+                transforms.ElasticTransform(
+                    alpha=params["elastic_alpha"],
+                    sigma=5.0,
+                    fill=0
+                )
+            )
+
+        # Add Gaussian blur (operates on tensors)
+        if params["gaussian_blur_p"] > 0:
+            transform_list.append(
+                transforms.RandomApply(
+                    [transforms.GaussianBlur(kernel_size=5, sigma=(0.1, 2.0))],
+                    p=params["gaussian_blur_p"]
+                )
+            )
+
+        # Add normalization
+        transform_list.append(normalize)
+
+        return transforms.Compose(transform_list)
     elif train and not use_augmentation:
         # Training without augmentation
         return transforms.Compose(
@@ -122,7 +188,7 @@ def get_dataloaders(
         num_workers: Number of workers for dataloaders
         seed: Random seed for reproducibility
         use_augmentation: Whether to use data augmentation on training set
-        augmentation_strength: Strength of augmentation - "light", "medium", or "strong"
+        augmentation_strength: Strength of augmentation - "light", "medium", "strong", or "very_strong"
 
     Returns:
         Tuple of (train_loader, val_loader, class_names)
