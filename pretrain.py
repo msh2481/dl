@@ -325,14 +325,14 @@ def main(
     lr: str = typer.Argument(..., help="Learning rate (float) or 'find' for LR finder"),
     weight_decay: float = typer.Option(0.01, help="Weight decay for AdamW"),
     epochs: int = typer.Option(100, help="Number of training epochs"),
-    batch_size: int = typer.Option(128, help="Batch size for unlabeled data"),
+    batch_size: int = typer.Option(32, help="Batch size for unlabeled data"),
     labeled_batch_size: int = typer.Option(
         32, help="Batch size for linear probe evaluation"
     ),
     eval_every_n_epochs: int = typer.Option(
-        1, help="Evaluate linear probe every N epochs"
+        5, help="Evaluate linear probe every N epochs"
     ),
-    save_every_n_steps: int = typer.Option(100, help="Save checkpoint every N steps"),
+    save_every_n_steps: int = typer.Option(500, help="Save checkpoint every N steps"),
     ema_span: int = typer.Option(10, help="EMA span in epochs"),
     num_workers: int = typer.Option(4, help="Number of dataloader workers"),
     seed: int = typer.Option(42, help="Random seed"),
