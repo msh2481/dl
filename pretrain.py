@@ -9,6 +9,7 @@ Usage:
     python pretrain.py find
 """
 
+import copy
 import os
 from pathlib import Path
 
@@ -160,14 +161,18 @@ def evaluate_linear_probe(
     device: torch.device,
     class_names: list,
     use_wandb: bool = False,
+    suffix: str = "",
 ) -> tuple[float, confusion_matrix]:
     """
     Evaluate representation quality using a linear probe on labeled data.
 
+    Args:
+        suffix: Optional suffix for logging (e.g., "_ema", "_polyak")
+
     Returns:
         Tuple of (validation accuracy, confusion matrix)
     """
-    logger.info("Evaluating linear probe on labeled data...")
+    logger.info(f"Evaluating linear probe{suffix} on labeled data...")
 
     # Extract features
     train_features, train_labels = extract_features(model, train_loader, device)
@@ -182,7 +187,7 @@ def evaluate_linear_probe(
     accuracy = accuracy_score(val_labels, val_predictions)
     conf_matrix = confusion_matrix(val_labels, val_predictions)
 
-    logger.info(f"Linear probe validation accuracy: {accuracy:.4f}")
+    logger.info(f"Linear probe{suffix} validation accuracy: {accuracy:.4f}")
 
     # Log confusion matrix to W&B
     if use_wandb:
@@ -191,7 +196,7 @@ def evaluate_linear_probe(
 
             wandb.log(
                 {
-                    "eval/confusion_matrix": wandb.plot.confusion_matrix(
+                    f"eval/confusion_matrix{suffix}": wandb.plot.confusion_matrix(
                         probs=None,
                         y_true=val_labels,
                         preds=val_predictions,
@@ -205,14 +210,60 @@ def evaluate_linear_probe(
     return accuracy, conf_matrix
 
 
+def update_averaged_models(
+    model: RotationModel,
+    ema_model: RotationModel,
+    polyak_model: RotationModel,
+    ema_span: int,
+    polyak_count: int,
+) -> int:
+    """Update EMA and Polyak averaged models."""
+    # EMA update: decay = 2 / (span + 1)
+    ema_decay = 2.0 / (ema_span + 1.0)
+    polyak_count += 1
+
+    # Only average trainable parameters, not buffers (e.g., BatchNorm stats)
+    for ema_param, polyak_param, param in zip(
+        ema_model.parameters(),
+        polyak_model.parameters(),
+        model.parameters(),
+    ):
+        # EMA: ema = ema * (1 - decay) + param * decay
+        ema_param.data.mul_(1.0 - ema_decay).add_(param.data, alpha=ema_decay)
+
+        # Polyak: simple arithmetic mean
+        polyak_param.data.mul_((polyak_count - 1) / polyak_count).add_(
+            param.data, alpha=1.0 / polyak_count
+        )
+
+    # Copy BatchNorm buffers (running_mean, running_var) from current model
+    # These should not be averaged
+    for ema_buffer, polyak_buffer, buffer in zip(
+        ema_model.buffers(),
+        polyak_model.buffers(),
+        model.buffers(),
+    ):
+        ema_buffer.data.copy_(buffer.data)
+        polyak_buffer.data.copy_(buffer.data)
+
+    return polyak_count
+
+
 def train_epoch(
     model: RotationModel,
+    ema_model: RotationModel,
+    polyak_model: RotationModel,
     train_loader: DataLoader,
     optimizer: torch.optim.Optimizer,
     device: torch.device,
     epoch: int,
     use_wandb: bool,
-) -> tuple[float, float]:
+    ema_span: int,
+    polyak_count: int,
+    global_step: int,
+    save_every_n_steps: int,
+    checkpoint_dir: Path,
+) -> tuple[float, float, int, int]:
     """Train for one epoch on rotation prediction task."""
     model.train()
     total_loss = 0.0
@@ -233,6 +284,11 @@ def train_epoch(
         loss.backward()
         optimizer.step()
 
+        # Update EMA and Polyak models after optimizer step
+        polyak_count = update_averaged_models(
+            model, ema_model, polyak_model, ema_span, polyak_count
+        )
+
         # Track metrics
         total_loss += loss.item()
         preds = logits.argmax(dim=1).cpu().numpy()
@@ -243,14 +299,25 @@ def train_epoch(
         current_lr = optimizer.param_groups[0]["lr"]
         pbar.set_postfix({"loss": f"{loss.item():.4f}", "lr": f"{current_lr:.2e}"})
 
+        # Save checkpoint every N steps
+        global_step += 1
+        if global_step % save_every_n_steps == 0:
+            # Save current model
+            step_checkpoint_path = checkpoint_dir / f"step_{global_step}.pt"
+            supervised_model = models.resnet18(num_classes=10)
+            supervised_model.fc = nn.Identity()
+            supervised_model.load_state_dict(model.backbone.state_dict())
+            supervised_model.fc = nn.Linear(512, 10)
+            torch.save(supervised_model.state_dict(), step_checkpoint_path)
+
         # Log to wandb
         if use_wandb:
-            wandb.log({"train/rotation_loss": loss.item(), "train/lr": current_lr})
+            wandb.log({"train/rotation_loss": loss.item(), "train/lr": current_lr, "global_step": global_step})
 
     avg_loss = total_loss / len(train_loader)
     accuracy = accuracy_score(all_targets, all_preds)
 
-    return avg_loss, accuracy
+    return avg_loss, accuracy, polyak_count, global_step
 
 
 @app.command()
@@ -265,6 +332,8 @@ def main(
     eval_every_n_epochs: int = typer.Option(
         1, help="Evaluate linear probe every N epochs"
     ),
+    save_every_n_steps: int = typer.Option(100, help="Save checkpoint every N steps"),
+    ema_span: int = typer.Option(10, help="EMA span in epochs"),
     num_workers: int = typer.Option(4, help="Number of dataloader workers"),
     seed: int = typer.Option(42, help="Random seed"),
 ):
@@ -299,6 +368,11 @@ def main(
     # Create model
     model = RotationModel().to(device)
     logger.info(f"Model created with {sum(p.numel() for p in model.parameters())} parameters")
+
+    # Initialize EMA and Polyak models
+    ema_model = copy.deepcopy(model)
+    polyak_model = copy.deepcopy(model)
+    logger.info("Initialized EMA and Polyak averaged models")
 
     # Setup criterion
     criterion = nn.CrossEntropyLoss()
@@ -363,11 +437,27 @@ def main(
     # Training loop
     logger.info(f"Starting pretraining for {epochs} epochs...")
     best_probe_acc = 0.0
+    best_probe_acc_ema = 0.0
+    best_probe_acc_polyak = 0.0
+    polyak_count = 0
+    global_step = 0
 
     for epoch in range(1, epochs + 1):
         # Train on rotation task
-        train_loss, train_acc = train_epoch(
-            model, unlabeled_loader, optimizer, device, epoch, use_wandb
+        train_loss, train_acc, polyak_count, global_step = train_epoch(
+            model,
+            ema_model,
+            polyak_model,
+            unlabeled_loader,
+            optimizer,
+            device,
+            epoch,
+            use_wandb,
+            ema_span,
+            polyak_count,
+            global_step,
+            save_every_n_steps,
+            checkpoint_dir,
         )
 
         logger.info(
@@ -385,14 +475,34 @@ def main(
 
         # Evaluate linear probe periodically
         if epoch % eval_every_n_epochs == 0 or epoch == epochs:
+            # Evaluate current model
             probe_acc, conf_matrix = evaluate_linear_probe(
-                model, labeled_train_loader, labeled_val_loader, device, class_names, use_wandb
+                model, labeled_train_loader, labeled_val_loader, device, class_names, use_wandb, suffix=""
+            )
+
+            # Evaluate EMA model
+            probe_acc_ema, conf_matrix_ema = evaluate_linear_probe(
+                ema_model, labeled_train_loader, labeled_val_loader, device, class_names, use_wandb, suffix="_ema"
+            )
+
+            # Evaluate Polyak model
+            probe_acc_polyak, conf_matrix_polyak = evaluate_linear_probe(
+                polyak_model, labeled_train_loader, labeled_val_loader, device, class_names, use_wandb, suffix="_polyak"
+            )
+
+            logger.info(
+                f"Linear probe accuracies - Current: {probe_acc:.4f}, EMA: {probe_acc_ema:.4f}, Polyak: {probe_acc_polyak:.4f}"
             )
 
             if use_wandb:
-                wandb.log({"eval/linear_probe_acc": probe_acc, "epoch": epoch})
+                wandb.log({
+                    "eval/linear_probe_acc": probe_acc,
+                    "eval/linear_probe_acc_ema": probe_acc_ema,
+                    "eval/linear_probe_acc_polyak": probe_acc_polyak,
+                    "epoch": epoch
+                })
 
-            # Save best model based on linear probe accuracy
+            # Save best model based on linear probe accuracy (current)
             if probe_acc > best_probe_acc:
                 best_probe_acc = probe_acc
                 best_checkpoint_path = checkpoint_dir / "pretrained_rotation_best.pt"
@@ -401,22 +511,49 @@ def main(
                 # Create a model with 10 classes for compatibility with supervised.py
                 supervised_model = models.resnet18(num_classes=10)
                 supervised_model.fc = nn.Identity()
-
-                # Copy backbone weights
                 supervised_model.load_state_dict(model.backbone.state_dict())
-
-                # Add back the fc layer
                 supervised_model.fc = nn.Linear(512, 10)
 
                 torch.save(supervised_model.state_dict(), best_checkpoint_path)
                 logger.info(
-                    f"Saved best checkpoint with probe_acc: {probe_acc:.4f} to {best_checkpoint_path}"
+                    f"Saved best checkpoint (current) with probe_acc: {probe_acc:.4f} to {best_checkpoint_path}"
+                )
+
+            # Save best EMA model
+            if probe_acc_ema > best_probe_acc_ema:
+                best_probe_acc_ema = probe_acc_ema
+                best_ema_checkpoint_path = checkpoint_dir / "pretrained_rotation_best_ema.pt"
+
+                supervised_model_ema = models.resnet18(num_classes=10)
+                supervised_model_ema.fc = nn.Identity()
+                supervised_model_ema.load_state_dict(ema_model.backbone.state_dict())
+                supervised_model_ema.fc = nn.Linear(512, 10)
+
+                torch.save(supervised_model_ema.state_dict(), best_ema_checkpoint_path)
+                logger.info(
+                    f"Saved best EMA checkpoint with probe_acc: {probe_acc_ema:.4f} to {best_ema_checkpoint_path}"
+                )
+
+            # Save best Polyak model
+            if probe_acc_polyak > best_probe_acc_polyak:
+                best_probe_acc_polyak = probe_acc_polyak
+                best_polyak_checkpoint_path = checkpoint_dir / "pretrained_rotation_best_polyak.pt"
+
+                supervised_model_polyak = models.resnet18(num_classes=10)
+                supervised_model_polyak.fc = nn.Identity()
+                supervised_model_polyak.load_state_dict(polyak_model.backbone.state_dict())
+                supervised_model_polyak.fc = nn.Linear(512, 10)
+
+                torch.save(supervised_model_polyak.state_dict(), best_polyak_checkpoint_path)
+                logger.info(
+                    f"Saved best Polyak checkpoint with probe_acc: {probe_acc_polyak:.4f} to {best_polyak_checkpoint_path}"
                 )
 
         # Step scheduler
         scheduler.step()
 
-    # Save final checkpoint
+    # Save final checkpoints
+    # Current model
     final_checkpoint_path = checkpoint_dir / "pretrained_rotation_final.pt"
     supervised_model = models.resnet18(num_classes=10)
     supervised_model.fc = nn.Identity()
@@ -424,8 +561,27 @@ def main(
     supervised_model.fc = nn.Linear(512, 10)
     torch.save(supervised_model.state_dict(), final_checkpoint_path)
 
-    logger.info(f"Training complete. Best probe accuracy: {best_probe_acc:.4f}")
-    logger.info(f"Final checkpoint saved to {final_checkpoint_path}")
+    # EMA model
+    final_ema_checkpoint_path = checkpoint_dir / "pretrained_rotation_final_ema.pt"
+    supervised_model_ema = models.resnet18(num_classes=10)
+    supervised_model_ema.fc = nn.Identity()
+    supervised_model_ema.load_state_dict(ema_model.backbone.state_dict())
+    supervised_model_ema.fc = nn.Linear(512, 10)
+    torch.save(supervised_model_ema.state_dict(), final_ema_checkpoint_path)
+
+    # Polyak model
+    final_polyak_checkpoint_path = checkpoint_dir / "pretrained_rotation_final_polyak.pt"
+    supervised_model_polyak = models.resnet18(num_classes=10)
+    supervised_model_polyak.fc = nn.Identity()
+    supervised_model_polyak.load_state_dict(polyak_model.backbone.state_dict())
+    supervised_model_polyak.fc = nn.Linear(512, 10)
+    torch.save(supervised_model_polyak.state_dict(), final_polyak_checkpoint_path)
+
+    logger.info(f"Training complete.")
+    logger.info(f"Best probe accuracy (current): {best_probe_acc:.4f}")
+    logger.info(f"Best probe accuracy (EMA): {best_probe_acc_ema:.4f}")
+    logger.info(f"Best probe accuracy (Polyak): {best_probe_acc_polyak:.4f}")
+    logger.info(f"Final checkpoints saved to {checkpoint_dir}")
 
     # Cleanup
     if use_wandb:
