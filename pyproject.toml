@@ -15,6 +15,7 @@ dependencies = [
     "ipywidgets>=8.1.7",
     "jaxtyping>=0.3.2",
     "jupyter>=1.1.1",
+    "lightning>=2.5.6",
     "loguru>=0.7.3",
     "matplotlib>=3.10.6",
     "pillow>=11.0.0",
