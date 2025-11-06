@@ -8,9 +8,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
+from sklearn.linear_model import LogisticRegression
 from torch.utils.data import DataLoader
 from torchvision import models, transforms
 from torchvision.datasets import STL10
+from tqdm import tqdm
 
 
 class ContrastiveTransformations:
@@ -69,8 +71,37 @@ class SimCLR(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         return self.info_nce_loss(batch, mode='train')
 
-    def validation_step(self, batch, batch_idx):
-        return self.info_nce_loss(batch, mode='val')
+    @torch.no_grad()
+    def on_validation_epoch_end(self):
+        self.convnet.eval()
+
+        train_loader = self.trainer.datamodule.train_labeled_dataloader()
+        test_loader = self.trainer.datamodule.test_dataloader()
+
+        train_feats, train_labels = [], []
+        for imgs, labels in tqdm(train_loader, desc="Train features"):
+            feats = self.convnet(imgs.to(self.device))
+            train_feats.append(feats.cpu())
+            train_labels.append(labels)
+        train_feats = torch.cat(train_feats).numpy()
+        train_labels = torch.cat(train_labels).numpy()
+
+        test_feats, test_labels = [], []
+        for imgs, labels in tqdm(test_loader, desc="Test features"):
+            feats = self.convnet(imgs.to(self.device))
+            test_feats.append(feats.cpu())
+            test_labels.append(labels)
+        test_feats = torch.cat(test_feats).numpy()
+        test_labels = torch.cat(test_labels).numpy()
+
+        clf = LogisticRegression(max_iter=1000, solver='lbfgs')
+        clf.fit(train_feats, train_labels)
+
+        train_acc = clf.score(train_feats, train_labels)
+        test_acc = clf.score(test_feats, test_labels)
+
+        self.log('train_logreg_acc', train_acc, prog_bar=True)
+        self.log('test_logreg_acc', test_acc, prog_bar=True)
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.hparams.lr, weight_decay=self.hparams.weight_decay)
@@ -102,11 +133,12 @@ class SimCLRDataModule(pl.LightningDataModule):
         ])
 
         self.train_transform = ContrastiveTransformations(contrast_transforms, n_views=2)
-        self.val_transform = ContrastiveTransformations(contrast_transforms, n_views=2)
+        self.eval_transform = transforms.Compose([transforms.ToTensor(), normalize])
 
     def setup(self, stage=None):
         self.train_dataset = STL10(self.data_dir, split="unlabeled", download=True, transform=self.train_transform)
-        self.val_dataset = STL10(self.data_dir, split="train", download=True, transform=self.val_transform)
+        self.train_labeled = STL10(self.data_dir, split="train", download=True, transform=self.eval_transform)
+        self.test_dataset = STL10(self.data_dir, split="test", download=True, transform=self.eval_transform)
 
     def train_dataloader(self):
         return DataLoader(
@@ -119,15 +151,22 @@ class SimCLRDataModule(pl.LightningDataModule):
             drop_last=True,
         )
 
-    def val_dataloader(self):
+    def train_labeled_dataloader(self):
         return DataLoader(
-            self.val_dataset,
+            self.train_labeled,
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
             pin_memory=True,
-            persistent_workers=True,
-            drop_last=True,
+        )
+
+    def test_dataloader(self):
+        return DataLoader(
+            self.test_dataset,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=self.num_workers,
+            pin_memory=True,
         )
 
 
@@ -152,9 +191,9 @@ def main():
 
     checkpoint_callback = ModelCheckpoint(
         dirpath="checkpoints",
-        filename="simclr-best-{epoch:02d}-{val_loss:.4f}",
-        monitor="val_loss",
-        mode="min",
+        filename="simclr-best-{epoch:02d}-{test_logreg_acc:.4f}",
+        monitor="test_logreg_acc",
+        mode="max",
         save_top_k=1,
     )
 
@@ -170,7 +209,7 @@ def main():
     trainer.fit(model, data_module)
 
     print(f"\nBest checkpoint: {checkpoint_callback.best_model_path}")
-    print(f"Best validation loss: {checkpoint_callback.best_model_score:.4f}")
+    print(f"Best test accuracy: {checkpoint_callback.best_model_score:.4f}")
 
 
 if __name__ == "__main__":
