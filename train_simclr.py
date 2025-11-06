@@ -94,7 +94,7 @@ class SimCLR(pl.LightningModule):
         test_feats = torch.cat(test_feats).numpy()
         test_labels = torch.cat(test_labels).numpy()
 
-        clf = LogisticRegression(max_iter=1000, solver='lbfgs')
+        clf = LogisticRegression(max_iter=100, solver='lbfgs')
         clf.fit(train_feats, train_labels)
 
         train_acc = clf.score(train_feats, train_labels)
