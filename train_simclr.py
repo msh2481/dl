@@ -72,7 +72,7 @@ class SimCLR(pl.LightningModule):
         return self.info_nce_loss(batch, mode='train')
 
     @torch.no_grad()
-    def on_validation_epoch_end(self):
+    def on_train_epoch_end(self):
         self.convnet.eval()
 
         train_loader = self.trainer.datamodule.train_labeled_dataloader()
@@ -180,6 +180,7 @@ def main():
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--data-dir", type=str, default="./data")
     parser.add_argument("--num-workers", type=int, default=4)
+    parser.add_argument("--limit-train-batches", type=float, default=1.0)
     args = parser.parse_args()
 
     Path("checkpoints").mkdir(exist_ok=True)
@@ -204,6 +205,7 @@ def main():
         precision="16-mixed",
         accelerator="auto",
         devices=1,
+        limit_train_batches=args.limit_train_batches,
     )
 
     trainer.fit(model, data_module)
