@@ -31,21 +31,25 @@ class SimCLR(pl.LightningModule):
         self.save_hyperparameters()
         assert temperature > 0.0, 'Temperature must be positive'
 
-        self.convnet = models.resnet18(weights=None)
-        self.convnet.fc = nn.Sequential(
-            nn.Linear(self.convnet.fc.in_features, 4 * hidden_dim),
+        self.backbone = models.resnet18(weights=None)
+        num_ftrs = self.backbone.fc.in_features
+        self.backbone.fc = nn.Identity()
+
+        self.projection_head = nn.Sequential(
+            nn.Linear(num_ftrs, 4 * hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(4 * hidden_dim, hidden_dim)
         )
 
     def forward(self, x):
-        return self.convnet(x)
+        feats = self.backbone(x)
+        return self.projection_head(feats)
 
     def info_nce_loss(self, batch, mode='train'):
         imgs, _ = batch
         imgs = torch.cat(imgs, dim=0)
 
-        feats = self.convnet(imgs)
+        feats = self(imgs)
         cos_sim = F.cosine_similarity(feats[:, None, :], feats[None, :, :], dim=-1)
 
         self_mask = torch.eye(cos_sim.shape[0], dtype=torch.bool, device=cos_sim.device)
@@ -73,14 +77,14 @@ class SimCLR(pl.LightningModule):
 
     @torch.no_grad()
     def on_train_epoch_end(self):
-        self.convnet.eval()
+        self.backbone.eval()
 
         train_loader = self.trainer.datamodule.train_labeled_dataloader()
         test_loader = self.trainer.datamodule.test_dataloader()
 
         train_feats, train_labels = [], []
         for imgs, labels in tqdm(train_loader, desc="Train features"):
-            feats = self.convnet(imgs.to(self.device))
+            feats = self.backbone(imgs.to(self.device))
             train_feats.append(feats.cpu())
             train_labels.append(labels)
         train_feats = torch.cat(train_feats).numpy()
@@ -88,7 +92,7 @@ class SimCLR(pl.LightningModule):
 
         test_feats, test_labels = [], []
         for imgs, labels in tqdm(test_loader, desc="Test features"):
-            feats = self.convnet(imgs.to(self.device))
+            feats = self.backbone(imgs.to(self.device))
             test_feats.append(feats.cpu())
             test_labels.append(labels)
         test_feats = torch.cat(test_feats).numpy()

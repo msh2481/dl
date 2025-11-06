@@ -14,11 +14,19 @@ from torchvision.datasets import STL10
 
 
 class STL10ResNet(pl.LightningModule):
-    def __init__(self, lr: float = 1e-3, weight_decay: float = 0.01, max_epochs: int = 100):
+    def __init__(self, lr: float = 1e-3, weight_decay: float = 0.01, max_epochs: int = 100,
+                 pretrained_backbone=None):
         super().__init__()
-        self.save_hyperparameters()
-        self.model = models.resnet18(weights=None)
-        self.model.fc = nn.Linear(self.model.fc.in_features, 10)
+        self.save_hyperparameters(ignore=['pretrained_backbone'])
+
+        if pretrained_backbone is not None:
+            self.model = pretrained_backbone
+            num_ftrs = 512
+        else:
+            self.model = models.resnet18(weights=None)
+            num_ftrs = self.model.fc.in_features
+
+        self.model.fc = nn.Linear(num_ftrs, 10)
         self.lr = lr
         self.weight_decay = weight_decay
         self.max_epochs = max_epochs
@@ -102,14 +110,32 @@ def main():
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--data-dir", type=str, default="./data")
     parser.add_argument("--num-workers", type=int, default=4)
+    parser.add_argument("--checkpoint", type=str, default=None)
     args = parser.parse_args()
 
     Path("checkpoints").mkdir(exist_ok=True)
 
     data_module = STL10DataModule(args.data_dir, args.batch_size, args.num_workers)
-    model = STL10ResNet(args.lr, args.weight_decay, args.epochs)
 
-    logger = WandbLogger(project="stl10-resnet18", log_model=False) if "WANDB_API_KEY" in os.environ else None
+    pretrained_backbone = None
+    if args.checkpoint:
+        print(f"Loading pretrained backbone from {args.checkpoint}")
+        checkpoint = torch.load(args.checkpoint, map_location='cpu', weights_only=False)
+
+        backbone = models.resnet18(weights=None)
+        backbone.fc = nn.Identity()
+
+        backbone_state_dict = {k.replace('backbone.', ''): v
+                              for k, v in checkpoint['state_dict'].items()
+                              if k.startswith('backbone.')}
+        backbone.load_state_dict(backbone_state_dict)
+        pretrained_backbone = backbone
+        print(f"Loaded {len(backbone_state_dict)} backbone parameters")
+
+    model = STL10ResNet(args.lr, args.weight_decay, args.epochs, pretrained_backbone)
+
+    project_name = "stl10-resnet18-finetune" if args.checkpoint else "stl10-resnet18"
+    logger = WandbLogger(project=project_name, log_model=False) if "WANDB_API_KEY" in os.environ else None
 
     checkpoint_callback = ModelCheckpoint(
         dirpath="checkpoints",
