@@ -21,7 +21,7 @@ echo "Step 1: Training SimCLR..."
 python train_simclr.py --epoch-ratio $EPOCH_RATIO
 
 # Step 2: BYOL
-echo ""
+echo ""`
 echo "Step 2: Training BYOL..."
 python train_byol.py --epoch-ratio $EPOCH_RATIO
 
@@ -35,12 +35,12 @@ python tsne_viz.py --checkpoint checkpoints/byol-best-*.ckpt --output tsne_byol.
 # Step 5: Fine-tuning
 echo ""
 echo "Step 5: Fine-tuning SimCLR..."
-python train_stl10.py --checkpoint checkpoints/simclr-best-*.ckpt --epochs 100 --lr 1e-4 --epoch-ratio $EPOCH_RATIO
+python train_stl10.py --checkpoint checkpoints/simclr-best-*.ckpt --epochs 50 --lr 1e-4 --epoch-ratio $EPOCH_RATIO
 mv checkpoints/best-*.ckpt checkpoints/simclr-finetuned.ckpt
 
 echo ""
 echo "Step 5: Fine-tuning BYOL..."
-python train_stl10.py --checkpoint checkpoints/byol-best-*.ckpt --epochs 100 --lr 1e-4 --epoch-ratio $EPOCH_RATIO
+python train_stl10.py --checkpoint checkpoints/byol-best-*.ckpt --epochs 50 --lr 1e-4 --epoch-ratio $EPOCH_RATIO
 mv checkpoints/best-*.ckpt checkpoints/byol-finetuned.ckpt
 
 # Step 3 (continued): t-SNE visualization after fine-tuning
