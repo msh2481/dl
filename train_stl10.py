@@ -118,6 +118,8 @@ def main():
 
     args.epochs = int(args.epochs * args.epoch_ratio)
 
+    torch.set_float32_matmul_precision('medium')
+
     Path("checkpoints").mkdir(exist_ok=True)
 
     data_module = STL10DataModule(args.data_dir, args.batch_size, args.num_workers)
