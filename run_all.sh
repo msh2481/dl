@@ -29,19 +29,25 @@ python train_byol.py --epoch-ratio $EPOCH_RATIO
 echo ""
 echo "Step 3: Generating t-SNE visualizations (before fine-tuning)..."
 python tsne_viz.py --checkpoint checkpoints/supervised.ckpt --output tsne_supervised.png
-python tsne_viz.py --checkpoint checkpoints/simclr-best-*.ckpt --output tsne_simclr.png
-python tsne_viz.py --checkpoint checkpoints/byol-best-*.ckpt --output tsne_byol.png
+SIMCLR_CKPT=$(ls -t checkpoints/simclr-best-*.ckpt 2>/dev/null | head -1)
+python tsne_viz.py --checkpoint "$SIMCLR_CKPT" --output tsne_simclr.png
+BYOL_CKPT=$(ls -t checkpoints/byol-best-*.ckpt 2>/dev/null | head -1)
+python tsne_viz.py --checkpoint "$BYOL_CKPT" --output tsne_byol.png
 
 # Step 5: Fine-tuning
 echo ""
 echo "Step 5: Fine-tuning SimCLR..."
-python train_stl10.py --checkpoint checkpoints/simclr-best-*.ckpt --epochs 50 --lr 1e-4 --epoch-ratio $EPOCH_RATIO
-mv checkpoints/best-*.ckpt checkpoints/simclr-finetuned.ckpt
+SIMCLR_CKPT=$(ls -t checkpoints/simclr-best-*.ckpt 2>/dev/null | head -1)
+python train_stl10.py --checkpoint "$SIMCLR_CKPT" --epochs 50 --lr 1e-4 --epoch-ratio $EPOCH_RATIO
+SIMCLR_FT=$(ls -t checkpoints/best-*.ckpt 2>/dev/null | head -1)
+mv "$SIMCLR_FT" checkpoints/simclr-finetuned.ckpt
 
 echo ""
 echo "Step 5: Fine-tuning BYOL..."
-python train_stl10.py --checkpoint checkpoints/byol-best-*.ckpt --epochs 50 --lr 1e-4 --epoch-ratio $EPOCH_RATIO
-mv checkpoints/best-*.ckpt checkpoints/byol-finetuned.ckpt
+BYOL_CKPT=$(ls -t checkpoints/byol-best-*.ckpt 2>/dev/null | head -1)
+python train_stl10.py --checkpoint "$BYOL_CKPT" --epochs 50 --lr 1e-4 --epoch-ratio $EPOCH_RATIO
+BYOL_FT=$(ls -t checkpoints/best-*.ckpt 2>/dev/null | head -1)
+mv "$BYOL_FT" checkpoints/byol-finetuned.ckpt
 
 # Step 3 (continued): t-SNE visualization after fine-tuning
 echo ""
@@ -57,7 +63,8 @@ python ood_eval.py --checkpoint checkpoints/supervised.ckpt
 
 echo ""
 echo "SimCLR (linear probe):"
-python ood_eval.py --checkpoint checkpoints/simclr-best-*.ckpt
+SIMCLR_CKPT=$(ls -t checkpoints/simclr-best-*.ckpt 2>/dev/null | head -1)
+python ood_eval.py --checkpoint "$SIMCLR_CKPT"
 
 echo ""
 echo "SimCLR (fine-tuned):"
@@ -65,7 +72,8 @@ python ood_eval.py --checkpoint checkpoints/simclr-finetuned.ckpt
 
 echo ""
 echo "BYOL (linear probe):"
-python ood_eval.py --checkpoint checkpoints/byol-best-*.ckpt
+BYOL_CKPT=$(ls -t checkpoints/byol-best-*.ckpt 2>/dev/null | head -1)
+python ood_eval.py --checkpoint "$BYOL_CKPT"
 
 echo ""
 echo "BYOL (fine-tuned):"
