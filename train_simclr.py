@@ -120,7 +120,7 @@ def main():
     parser.add_argument("--epoch-ratio", type=float, default=1.0)
     args = parser.parse_args()
 
-    args.epochs = int(args.epochs * args.epoch_ratio)
+    args.epochs = int(args.epochs * args.epoch_ratio + 0.5)
 
     torch.set_float32_matmul_precision('medium')
 

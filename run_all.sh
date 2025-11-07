@@ -9,21 +9,21 @@ echo "Starting full training and evaluation pipeline"
 echo "Epoch ratio: $EPOCH_RATIO"
 echo "========================================"
 
-# Step 0: Supervised baseline
-echo ""
-echo "Step 0: Training supervised baseline..."
-python train_stl10.py --epoch-ratio $EPOCH_RATIO
-mv checkpoints/best-*.ckpt checkpoints/supervised.ckpt
+# # Step 0: Supervised baseline
+# echo ""
+# echo "Step 0: Training supervised baseline..."
+# python train_stl10.py --epoch-ratio $EPOCH_RATIO
+# mv checkpoints/best-*.ckpt checkpoints/supervised.ckpt
 
-# Step 1: SimCLR
-echo ""
-echo "Step 1: Training SimCLR..."
-python train_simclr.py --epoch-ratio $EPOCH_RATIO
+# # Step 1: SimCLR
+# echo ""
+# echo "Step 1: Training SimCLR..."
+# python train_simclr.py --epoch-ratio $EPOCH_RATIO
 
-# Step 2: BYOL
-echo ""`
-echo "Step 2: Training BYOL..."
-python train_byol.py --epoch-ratio $EPOCH_RATIO
+# # Step 2: BYOL
+# echo ""`
+# echo "Step 2: Training BYOL..."
+# python train_byol.py --epoch-ratio $EPOCH_RATIO
 
 # Step 3: t-SNE visualization before fine-tuning
 echo ""
