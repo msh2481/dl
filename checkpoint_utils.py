@@ -43,18 +43,18 @@ def load_model_for_classification(checkpoint_path, num_classes=10):
     checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
     state_dict = checkpoint['state_dict']
 
-    model = models.resnet18(weights=None)
-
     # Detect checkpoint type
     if any(k.startswith('online_backbone.') for k in state_dict.keys()) or \
        any(k.startswith('backbone.') for k in state_dict.keys()):
         # SimCLR or BYOL: load backbone, create new fc
+        model = models.resnet18(weights=None)
         backbone = load_backbone_from_checkpoint(checkpoint_path)
         backbone_state = backbone.state_dict()
         model.load_state_dict(backbone_state, strict=False)
         model.fc = nn.Linear(512, num_classes)
     else:
-        # Supervised: load full model
+        # Supervised: load full model with correct num_classes
+        model = models.resnet18(weights=None, num_classes=num_classes)
         model_state_dict = {k.replace('model.', ''): v for k, v in state_dict.items() if k.startswith('model.')}
         model.load_state_dict(model_state_dict)
 
