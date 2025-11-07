@@ -32,6 +32,9 @@ class SimCLR(pl.LightningModule):
             nn.Linear(4 * hidden_dim, hidden_dim)
         )
 
+        self.fc = nn.Linear(512, 10)
+        self.fc.requires_grad_(False)
+
     def forward(self, x):
         feats = self.backbone(x)
         return self.projection_head(feats)
@@ -89,14 +92,24 @@ class SimCLR(pl.LightningModule):
         test_feats = torch.cat(test_feats).numpy()
         test_labels = torch.cat(test_labels).numpy()
 
+        # Downsample 5x for faster logreg training
+        n_samples = len(train_feats) // 5
+        indices = torch.randperm(len(train_feats))[:n_samples].numpy()
+        train_feats_sub = train_feats[indices]
+        train_labels_sub = train_labels[indices]
+
         clf = LogisticRegression(max_iter=100, solver='lbfgs')
-        clf.fit(train_feats, train_labels)
+        clf.fit(train_feats_sub, train_labels_sub)
 
         train_acc = clf.score(train_feats, train_labels)
         test_acc = clf.score(test_feats, test_labels)
 
         self.log('train_logreg_acc', train_acc, prog_bar=True)
         self.log('test_logreg_acc', test_acc, prog_bar=True)
+
+        # Save logreg weights to fc layer
+        self.fc.weight.data = torch.from_numpy(clf.coef_).float()
+        self.fc.bias.data = torch.from_numpy(clf.intercept_).float()
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.hparams.lr, weight_decay=self.hparams.weight_decay)

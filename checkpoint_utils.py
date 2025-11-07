@@ -46,12 +46,16 @@ def load_model_for_classification(checkpoint_path, num_classes=10):
     # Detect checkpoint type
     if any(k.startswith('online_backbone.') for k in state_dict.keys()) or \
        any(k.startswith('backbone.') for k in state_dict.keys()):
-        # SimCLR or BYOL: load backbone, create new fc
-        model = models.resnet18(weights=None)
+        # SimCLR or BYOL: load backbone + fc
+        model = models.resnet18(weights=None, num_classes=num_classes)
         backbone = load_backbone_from_checkpoint(checkpoint_path)
         backbone_state = backbone.state_dict()
         model.load_state_dict(backbone_state, strict=False)
-        model.fc = nn.Linear(512, num_classes)
+
+        # Load fc layer if exists in checkpoint
+        if 'fc.weight' in state_dict and 'fc.bias' in state_dict:
+            model.fc.weight.data = state_dict['fc.weight']
+            model.fc.bias.data = state_dict['fc.bias']
     else:
         # Supervised: load full model with correct num_classes
         model = models.resnet18(weights=None, num_classes=num_classes)
