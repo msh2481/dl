@@ -82,10 +82,7 @@ def main():
     print(f"Loading model from {args.checkpoint}")
     model = load_model_for_classification(args.checkpoint, num_classes=10)
     model.to(device)
-
-    print("Evaluating on CIFAR-10 (excluding frogs)...")
     accuracy = evaluate_on_cifar10(model, device, args.data_dir, args.batch_size, args.num_workers)
-
     print(f"\nOOD Accuracy on CIFAR-10: {accuracy:.4f} ({accuracy*100:.2f}%)")
 
 
