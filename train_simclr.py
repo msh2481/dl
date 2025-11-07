@@ -117,7 +117,10 @@ def main():
     parser.add_argument("--data-dir", type=str, default="./data")
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--limit-train-batches", type=float, default=1.0)
+    parser.add_argument("--epoch-ratio", type=float, default=1.0)
     args = parser.parse_args()
+
+    args.epochs = int(args.epochs * args.epoch_ratio)
 
     Path("checkpoints").mkdir(exist_ok=True)
 

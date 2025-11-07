@@ -12,6 +12,8 @@ from torch.utils.data import DataLoader
 from torchvision import models, transforms
 from torchvision.datasets import STL10
 
+from checkpoint_utils import load_backbone_from_checkpoint
+
 
 class STL10ResNet(pl.LightningModule):
     def __init__(self, lr: float = 1e-3, weight_decay: float = 0.01, max_epochs: int = 100,
@@ -105,13 +107,16 @@ class STL10DataModule(pl.LightningDataModule):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--epochs", type=int, default=500)
-    parser.add_argument("--batch-size", type=int, default=256)
-    parser.add_argument("--weight-decay", type=float, default=1e-4)
+    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--weight-decay", type=float, default=0.01)
     parser.add_argument("--data-dir", type=str, default="./data")
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--checkpoint", type=str, default=None)
+    parser.add_argument("--epoch-ratio", type=float, default=1.0)
     args = parser.parse_args()
+
+    args.epochs = int(args.epochs * args.epoch_ratio)
 
     Path("checkpoints").mkdir(exist_ok=True)
 
@@ -120,17 +125,8 @@ def main():
     pretrained_backbone = None
     if args.checkpoint:
         print(f"Loading pretrained backbone from {args.checkpoint}")
-        checkpoint = torch.load(args.checkpoint, map_location='cpu', weights_only=False)
-
-        backbone = models.resnet18(weights=None)
-        backbone.fc = nn.Identity()
-
-        backbone_state_dict = {k.replace('backbone.', ''): v
-                              for k, v in checkpoint['state_dict'].items()
-                              if k.startswith('backbone.')}
-        backbone.load_state_dict(backbone_state_dict)
-        pretrained_backbone = backbone
-        print(f"Loaded {len(backbone_state_dict)} backbone parameters")
+        pretrained_backbone = load_backbone_from_checkpoint(args.checkpoint)
+        print("Loaded backbone successfully")
 
     model = STL10ResNet(args.lr, args.weight_decay, args.epochs, pretrained_backbone)
 

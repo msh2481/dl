@@ -64,10 +64,12 @@ class BYOL(pl.LightningModule):
         imgs, _ = batch
         view1, view2 = imgs[0], imgs[1]
 
-        pred1 = self(view1)
+        z1 = self.online_projector(self.online_backbone(view1))
+        pred1 = self.predictor(z1)
         pred1 = F.normalize(pred1, dim=-1)
 
-        pred2 = self(view2)
+        z2 = self.online_projector(self.online_backbone(view2))
+        pred2 = self.predictor(z2)
         pred2 = F.normalize(pred2, dim=-1)
 
         with torch.no_grad():
@@ -80,11 +82,15 @@ class BYOL(pl.LightningModule):
         loss1 = 2 - 2 * (pred1 * target2).sum(dim=-1).mean()
         loss2 = 2 - 2 * (pred2 * target1).sum(dim=-1).mean()
 
-        return (loss1 + loss2) / 2
+        z = torch.cat([z1, z2], dim=0)
+        z_std = z.std(dim=0).mean()
+
+        return (loss1 + loss2) / 2, z_std
 
     def training_step(self, batch, batch_idx):
-        loss = self.byol_loss(batch)
+        loss, z_std = self.byol_loss(batch)
         self.log('train_loss', loss, prog_bar=True)
+        self.log('z_std', z_std, prog_bar=True)
         return loss
 
     def on_after_backward(self):
@@ -141,7 +147,10 @@ def main():
     parser.add_argument("--data-dir", type=str, default="./data")
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--limit-train-batches", type=float, default=1.0)
+    parser.add_argument("--epoch-ratio", type=float, default=1.0)
     args = parser.parse_args()
+
+    args.epochs = int(args.epochs * args.epoch_ratio)
 
     Path("checkpoints").mkdir(exist_ok=True)
 
