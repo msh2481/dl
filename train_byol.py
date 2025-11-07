@@ -1,7 +1,8 @@
 import argparse
+import copy
 import os
 from pathlib import Path
-
+from itertools import chain
 import lightning as pl
 import torch
 import torch.nn as nn
@@ -15,67 +16,90 @@ from tqdm import tqdm
 from contrastive_data import ContrastiveDataModule
 
 
-class SimCLR(pl.LightningModule):
-    def __init__(self, hidden_dim: int = 128, lr: float = 1e-3, temperature: float = 0.07,
-                 weight_decay: float = 1e-4, max_epochs: int = 500):
+class BYOL(pl.LightningModule):
+    def __init__(self, hidden_dim: int = 128, lr: float = 1e-3, weight_decay: float = 1e-4,
+                 max_epochs: int = 500, tau: float = 0.996):
         super().__init__()
         self.save_hyperparameters()
-        assert temperature > 0.0, 'Temperature must be positive'
 
-        self.backbone = models.resnet18(weights=None)
-        num_ftrs = self.backbone.fc.in_features
-        self.backbone.fc = nn.Identity()
+        self.online_backbone = models.resnet18(weights=None)
+        num_ftrs = self.online_backbone.fc.in_features
+        self.online_backbone.fc = nn.Identity()
 
-        self.projection_head = nn.Sequential(
+        self.online_projector = nn.Sequential(
             nn.Linear(num_ftrs, 4 * hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(4 * hidden_dim, hidden_dim)
         )
 
+        self.predictor = nn.Sequential(
+            nn.Linear(hidden_dim, 4 * hidden_dim),
+            nn.ReLU(inplace=True),
+            nn.Linear(4 * hidden_dim, hidden_dim)
+        )
+
+        self.target_backbone = copy.deepcopy(self.online_backbone)
+        self.target_projector = copy.deepcopy(self.online_projector)
+
+        for param in self.target_backbone.parameters():
+            param.requires_grad = False
+        for param in self.target_projector.parameters():
+            param.requires_grad = False
+
     def forward(self, x):
-        feats = self.backbone(x)
-        return self.projection_head(feats)
+        feats = self.online_backbone(x)
+        z = self.online_projector(feats)
+        return self.predictor(z)
 
-    def info_nce_loss(self, batch, mode='train'):
+    @torch.no_grad()
+    def update_target_network(self):
+        tau = self.hparams.tau
+        for online_params, target_params in zip(
+            chain(self.online_backbone.parameters(), self.online_projector.parameters()),
+            chain(self.target_backbone.parameters(), self.target_projector.parameters())
+        ):
+            target_params.data = tau * target_params.data + (1 - tau) * online_params.data
+
+    def byol_loss(self, batch):
         imgs, _ = batch
-        imgs = torch.cat(imgs, dim=0)
+        view1, view2 = imgs[0], imgs[1]
 
-        feats = self(imgs)
-        cos_sim = F.cosine_similarity(feats[:, None, :], feats[None, :, :], dim=-1)
+        pred1 = self(view1)
+        pred1 = F.normalize(pred1, dim=-1)
 
-        self_mask = torch.eye(cos_sim.shape[0], dtype=torch.bool, device=cos_sim.device)
-        cos_sim.masked_fill_(self_mask, -9e15)
+        pred2 = self(view2)
+        pred2 = F.normalize(pred2, dim=-1)
 
-        pos_mask = self_mask.roll(shifts=cos_sim.shape[0] // 2, dims=0)
+        with torch.no_grad():
+            target1 = self.target_projector(self.target_backbone(view1))
+            target1 = F.normalize(target1, dim=-1)
 
-        cos_sim = cos_sim / self.hparams.temperature
-        nll = -cos_sim[pos_mask] + torch.logsumexp(cos_sim, dim=-1)
-        nll = nll.mean()
+            target2 = self.target_projector(self.target_backbone(view2))
+            target2 = F.normalize(target2, dim=-1)
 
-        self.log(f'{mode}_loss', nll, prog_bar=True)
+        loss1 = 2 - 2 * (pred1 * target2).sum(dim=-1).mean()
+        loss2 = 2 - 2 * (pred2 * target1).sum(dim=-1).mean()
 
-        combined_sim = torch.cat([cos_sim[pos_mask][:, None], cos_sim.masked_fill(pos_mask, -9e15)], dim=-1)
-        sim_argsort = combined_sim.argsort(dim=-1, descending=True).argmin(dim=-1)
-
-        self.log(f'{mode}_acc_top1', (sim_argsort == 0).float().mean(), prog_bar=(mode == 'train'))
-        self.log(f'{mode}_acc_top5', (sim_argsort < 5).float().mean())
-        self.log(f'{mode}_acc_mean_pos', 1 + sim_argsort.float().mean())
-
-        return nll
+        return (loss1 + loss2) / 2
 
     def training_step(self, batch, batch_idx):
-        return self.info_nce_loss(batch, mode='train')
+        loss = self.byol_loss(batch)
+        self.log('train_loss', loss, prog_bar=True)
+        return loss
+
+    def on_after_backward(self):
+        self.update_target_network()
 
     @torch.no_grad()
     def on_train_epoch_end(self):
-        self.backbone.eval()
+        self.online_backbone.eval()
 
         train_loader = self.trainer.datamodule.train_labeled_dataloader()
         test_loader = self.trainer.datamodule.test_dataloader()
 
         train_feats, train_labels = [], []
         for imgs, labels in tqdm(train_loader, desc="Train features"):
-            feats = self.backbone(imgs.to(self.device))
+            feats = self.online_backbone(imgs.to(self.device))
             train_feats.append(feats.cpu())
             train_labels.append(labels)
         train_feats = torch.cat(train_feats).numpy()
@@ -83,7 +107,7 @@ class SimCLR(pl.LightningModule):
 
         test_feats, test_labels = [], []
         for imgs, labels in tqdm(test_loader, desc="Test features"):
-            feats = self.backbone(imgs.to(self.device))
+            feats = self.online_backbone(imgs.to(self.device))
             test_feats.append(feats.cpu())
             test_labels.append(labels)
         test_feats = torch.cat(test_feats).numpy()
@@ -110,7 +134,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--hidden-dim", type=int, default=128)
     parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--temperature", type=float, default=0.07)
+    parser.add_argument("--tau", type=float, default=0.996)
     parser.add_argument("--epochs", type=int, default=500)
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
@@ -122,13 +146,13 @@ def main():
     Path("checkpoints").mkdir(exist_ok=True)
 
     data_module = ContrastiveDataModule(args.data_dir, args.batch_size, args.num_workers)
-    model = SimCLR(args.hidden_dim, args.lr, args.temperature, args.weight_decay, args.epochs)
+    model = BYOL(args.hidden_dim, args.lr, args.weight_decay, args.epochs, args.tau)
 
-    logger = WandbLogger(project="stl10-simclr", log_model=False) if "WANDB_API_KEY" in os.environ else None
+    logger = WandbLogger(project="stl10-byol", log_model=False) if "WANDB_API_KEY" in os.environ else None
 
     checkpoint_callback = ModelCheckpoint(
         dirpath="checkpoints",
-        filename="simclr-best-{epoch:02d}-{test_logreg_acc:.4f}",
+        filename="byol-best-{epoch:02d}-{test_logreg_acc:.4f}",
         monitor="test_logreg_acc",
         mode="max",
         save_top_k=1,
