@@ -1,6 +1,7 @@
 runs
 data
 lightning_logs
+other_checkpoints
 checkpoints
 __pycache__
 *.pt
