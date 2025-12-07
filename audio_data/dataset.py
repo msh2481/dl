@@ -84,15 +84,10 @@ class AudioMNISTDataset(Dataset):
 
     def __getitem__(self, idx: int) -> dict:
         file_info = self.files[idx]
-
         waveform, orig_sr = torchaudio.load(file_info["path"])
-
         waveform = self._process_waveform(waveform)
-
         waveform_aug = self.waveform_aug(waveform)
-
         spectrogram = self.mel_transform(waveform_aug.squeeze(0))
-
         spectrogram = self.spectrogram_aug(spectrogram)
 
         if self.mode == "contrastive":
@@ -210,6 +205,7 @@ class AudioMNISTDataModule(pl.LightningDataModule):
             shuffle=True,
             num_workers=self.num_workers,
             pin_memory=True,
+            persistent_workers=True if self.num_workers > 0 else False,
         )
 
     def val_dataloader(self) -> DataLoader:
@@ -219,6 +215,7 @@ class AudioMNISTDataModule(pl.LightningDataModule):
             shuffle=False,
             num_workers=self.num_workers,
             pin_memory=True,
+            persistent_workers=True if self.num_workers > 0 else False,
         )
 
     def test_dataloader(self) -> DataLoader:
@@ -228,4 +225,5 @@ class AudioMNISTDataModule(pl.LightningDataModule):
             shuffle=False,
             num_workers=self.num_workers,
             pin_memory=True,
+            persistent_workers=True if self.num_workers > 0 else False,
         )

@@ -8,7 +8,7 @@ from .losses import InfoNCELoss
 
 class ProjectionHead(nn.Module):
     def __init__(
-        self, input_dim: int = 512, hidden_dim: int = 512, output_dim: int = 256
+        self, input_dim: int = 128, hidden_dim: int = 128, output_dim: int = 128
     ):
         super().__init__()
         self.projection = nn.Sequential(
@@ -24,8 +24,8 @@ class ProjectionHead(nn.Module):
 class MultiFormatContrastiveModel(pl.LightningModule):
     def __init__(
         self,
-        embedding_dim: int = 512,
-        projection_dim: int = 256,
+        embedding_dim: int = 128,
+        projection_dim: int = 128,
         temperature: float = 0.07,
         lr: float = 1e-3,
         weight_decay: float = 1e-4,
@@ -146,10 +146,11 @@ class FinetuneModel(pl.LightningModule):
             for param in self.encoder_2d.parameters():
                 param.requires_grad = False
 
-        if encoder_type == "concat":
-            embedding_dim = 512 * 2
-        else:
-            embedding_dim = 512
+        embedding_dim = (
+            contrastive_model.encoder_1d.projection.out_features
+            if encoder_type != "concat"
+            else contrastive_model.encoder_1d.projection.out_features * 2
+        )
 
         self.classifier = nn.Linear(embedding_dim, num_classes)
 
