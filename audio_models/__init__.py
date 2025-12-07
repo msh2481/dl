@@ -2,7 +2,7 @@
 
 from .encoders import Encoder1D, Encoder2D
 from .losses import InfoNCELoss
-from .contrastive import MultiFormatContrastiveModel
+from .contrastive import MultiFormatContrastiveModel, FinetuneModel
 from .supervised import SupervisedModel
 
 __all__ = [
@@ -10,5 +10,6 @@ __all__ = [
     'Encoder2D',
     'InfoNCELoss',
     'MultiFormatContrastiveModel',
+    'FinetuneModel',
     'SupervisedModel',
 ]
