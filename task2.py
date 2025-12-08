@@ -76,8 +76,17 @@ def main(
         device="cuda" if torch.cuda.is_available() else "cpu"
     )
 
+    # Clean results for JSON serialization (remove model objects)
+    json_results = {}
+    for feature_type, result in results.items():
+        json_results[feature_type] = {
+            "train_acc": result["train_acc"],
+            "val_acc": result["val_acc"]
+            # Exclude 'model' key as LogisticRegression is not JSON serializable
+        }
+
     with open(output_dir / "metrics.json", "w") as f:
-        json.dump(results, f, indent=2)
+        json.dump(json_results, f, indent=2)
 
     with open(output_dir / "metrics.txt", "w") as f:
         f.write("Task 2: Multi-Format Contrastive Learning\n")
