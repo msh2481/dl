@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import torch
 import typer
 import lightning as pl
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
@@ -68,8 +69,12 @@ def main(
         checkpoint_callback.best_model_path
     )
 
-    probe = LinearProbe(best_model, dm)
-    results = probe.evaluate_multimodal()
+    results = LinearProbe.evaluate_multimodal(
+        best_model,
+        dm.train_dataloader(),
+        dm.val_dataloader(),
+        device="cuda" if torch.cuda.is_available() else "cpu"
+    )
 
     with open(output_dir / "metrics.json", "w") as f:
         json.dump(results, f, indent=2)
