@@ -94,13 +94,13 @@ def main(
         f.write("Linear Probe Results:\n")
         for probe_type, metrics in results.items():
             f.write(f"\n{probe_type.upper()} Probe:\n")
+            f.write(f"  Train Accuracy:      {metrics['train_acc']:.4f}\n")
             f.write(f"  Validation Accuracy: {metrics['val_acc']:.4f}\n")
-            f.write(f"  Test Accuracy:       {metrics['test_acc']:.4f}\n")
 
     print(f"\nResults saved to {output_dir}/")
     print("\nLinear Probe Results:")
     for probe_type, metrics in results.items():
-        print(f"  {probe_type.upper()}: {metrics['test_acc']:.4f}")
+        print(f"  {probe_type.upper()}: Val Acc {metrics['val_acc']:.4f}")
 
 
 if __name__ == "__main__":
