@@ -7,7 +7,7 @@ from sklearn.metrics import accuracy_score
 
 from audio_data import AudioMNISTDataModule
 from audio_models import MultiFormatContrastiveModel
-from audio_utils import extract_contrastive_embeddings
+from audio_utils import extract_contrastive_embeddings_both
 
 app = typer.Typer()
 
@@ -58,12 +58,12 @@ def main(
     print(f"{'='*60}\n")
 
     train_emb_1d, train_emb_2d, train_speakers, _ = (
-        extract_contrastive_embeddings(model, dm.train_dataloader())
+        extract_contrastive_embeddings_both(model, dm.train_dataloader())
     )
-    val_emb_1d, val_emb_2d, val_speakers, _ = extract_contrastive_embeddings(
+    val_emb_1d, val_emb_2d, val_speakers, _ = extract_contrastive_embeddings_both(
         model, dm.val_dataloader()
     )
-    test_emb_1d, test_emb_2d, test_speakers, _ = extract_contrastive_embeddings(
+    test_emb_1d, test_emb_2d, test_speakers, _ = extract_contrastive_embeddings_both(
         model, dm.test_dataloader()
     )
 

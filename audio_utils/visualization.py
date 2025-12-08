@@ -23,7 +23,6 @@ def plot_tsne(
     tsne = TSNE(
         n_components=2,
         perplexity=perplexity,
-        n_iter=n_iter,
         random_state=42,
         verbose=0,
     )
@@ -110,6 +109,40 @@ def extract_embeddings(encoder, dataloader, device="cuda", encoder_type="1d"):
     return embeddings, digits, speakers
 
 
+@torch.no_grad()
+def extract_contrastive_embeddings_both(
+    contrastive_model,
+    dataloader,
+    device="cuda",
+):
+    """Extract both 1D and 2D embeddings from contrastive model"""
+    contrastive_model.eval()
+    contrastive_model = contrastive_model.to(device)
+
+    all_embeddings_1d = []
+    all_embeddings_2d = []
+    all_digits = []
+    all_speakers = []
+
+    for batch in tqdm(dataloader, desc="Extracting both 1d and 2d embeddings"):
+        waveform = batch["waveform"].to(device)
+        spectrogram = batch["spectrogram"].to(device)
+
+        h1, h2 = contrastive_model.get_embeddings(waveform, spectrogram)
+
+        all_embeddings_1d.append(h1.cpu())
+        all_embeddings_2d.append(h2.cpu())
+        all_digits.append(batch["digit"].cpu())
+        all_speakers.append(batch["speaker_id"].cpu())
+
+    embeddings_1d = torch.cat(all_embeddings_1d, dim=0).numpy()
+    embeddings_2d = torch.cat(all_embeddings_2d, dim=0).numpy()
+    digits = torch.cat(all_digits, dim=0).numpy()
+    speakers = torch.cat(all_speakers, dim=0).numpy()
+
+    return embeddings_1d, embeddings_2d, speakers, digits
+
+
 def generate_all_tsne_plots(
     models_dict,
     dataloader,
@@ -185,3 +218,37 @@ def extract_contrastive_embeddings(
     speakers = torch.cat(all_speakers, dim=0).numpy()
 
     return embeddings, digits, speakers
+
+
+@torch.no_grad()
+def extract_contrastive_embeddings_both(
+    contrastive_model,
+    dataloader,
+    device="cuda",
+):
+    """Extract both 1D and 2D embeddings from contrastive model"""
+    contrastive_model.eval()
+    contrastive_model = contrastive_model.to(device)
+
+    all_embeddings_1d = []
+    all_embeddings_2d = []
+    all_digits = []
+    all_speakers = []
+
+    for batch in tqdm(dataloader, desc="Extracting both 1d and 2d embeddings"):
+        waveform = batch["waveform"].to(device)
+        spectrogram = batch["spectrogram"].to(device)
+
+        h1, h2 = contrastive_model.get_embeddings(waveform, spectrogram)
+
+        all_embeddings_1d.append(h1.cpu())
+        all_embeddings_2d.append(h2.cpu())
+        all_digits.append(batch["digit"].cpu())
+        all_speakers.append(batch["speaker_id"].cpu())
+
+    embeddings_1d = torch.cat(all_embeddings_1d, dim=0).numpy()
+    embeddings_2d = torch.cat(all_embeddings_2d, dim=0).numpy()
+    digits = torch.cat(all_digits, dim=0).numpy()
+    speakers = torch.cat(all_speakers, dim=0).numpy()
+
+    return embeddings_1d, embeddings_2d, speakers, digits

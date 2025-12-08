@@ -4,6 +4,7 @@ from .visualization import (
     generate_all_tsne_plots,
     extract_embeddings,
     extract_contrastive_embeddings,
+    extract_contrastive_embeddings_both,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "generate_all_tsne_plots",
     "extract_embeddings",
     "extract_contrastive_embeddings",
+    "extract_contrastive_embeddings_both",
 ]
