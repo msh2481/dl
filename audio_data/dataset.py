@@ -22,6 +22,7 @@ class AudioMNISTDataset(Dataset):
         apply_waveform_aug: bool = False,
         apply_spectrogram_aug: bool = False,
         mode: str = "contrastive",
+        ratio: float = 1.0,
     ):
         super().__init__()
         self.root = Path(root)
@@ -44,9 +45,9 @@ class AudioMNISTDataset(Dataset):
         )
 
         self.files = []
-        self._load_file_paths()
+        self._load_file_paths(ratio=ratio)
 
-    def _load_file_paths(self):
+    def _load_file_paths(self, ratio: float = 1.0):
         for speaker_id in self.speaker_ids:
             speaker_dir = self.root / f"{speaker_id:02d}"
             if not speaker_dir.exists():
@@ -63,6 +64,13 @@ class AudioMNISTDataset(Dataset):
                             "digit": digit,
                         }
                     )
+
+        if ratio < 1.0:
+            import random
+
+            random.seed(42)
+            n_samples = int(len(self.files) * ratio)
+            self.files = random.sample(self.files, n_samples)
 
     def _process_waveform(self, waveform: torch.Tensor) -> torch.Tensor:
         waveform = self.resample(waveform)
@@ -123,6 +131,7 @@ class AudioMNISTDataModule(pl.LightningDataModule):
         apply_waveform_aug: bool = False,
         apply_spectrogram_aug: bool = False,
         test_speaker_start: int = 41,
+        ratio: float = 1.0,
     ):
         super().__init__()
         self.root = root
@@ -132,6 +141,7 @@ class AudioMNISTDataModule(pl.LightningDataModule):
         self.apply_waveform_aug = apply_waveform_aug
         self.apply_spectrogram_aug = apply_spectrogram_aug
         self.test_speaker_start = test_speaker_start
+        self.ratio = ratio
 
         self.train_dataset = None
         self.val_dataset = None
@@ -146,6 +156,7 @@ class AudioMNISTDataModule(pl.LightningDataModule):
             root=self.root,
             speaker_ids=train_val_speakers,
             mode=self.mode,
+            ratio=self.ratio,
         )
 
         stratify_labels = [
@@ -153,12 +164,20 @@ class AudioMNISTDataModule(pl.LightningDataModule):
         ]
         indices = list(range(len(temp_dataset.files)))
 
-        train_indices, val_indices = train_test_split(
-            indices,
-            test_size=0.2,
-            stratify=stratify_labels,
-            random_state=42,
-        )
+        try:
+            train_indices, val_indices = train_test_split(
+                indices,
+                test_size=0.2,
+                stratify=stratify_labels,
+                random_state=42,
+            )
+        except ValueError:
+            train_indices, val_indices = train_test_split(
+                indices,
+                test_size=0.2,
+                stratify=None,
+                random_state=42,
+            )
 
         train_speakers_set = set()
         val_speakers_set = set()
@@ -179,6 +198,7 @@ class AudioMNISTDataModule(pl.LightningDataModule):
                 apply_waveform_aug=self.apply_waveform_aug,
                 apply_spectrogram_aug=self.apply_spectrogram_aug,
                 mode=self.mode,
+                ratio=self.ratio,
             )
 
             self.val_dataset = AudioMNISTDataset(
@@ -187,6 +207,7 @@ class AudioMNISTDataModule(pl.LightningDataModule):
                 apply_waveform_aug=False,
                 apply_spectrogram_aug=False,
                 mode=self.mode,
+                ratio=self.ratio,
             )
 
         if stage == "test" or stage is None:
@@ -196,6 +217,7 @@ class AudioMNISTDataModule(pl.LightningDataModule):
                 apply_waveform_aug=False,
                 apply_spectrogram_aug=False,
                 mode=self.mode,
+                ratio=self.ratio,
             )
 
     def train_dataloader(self) -> DataLoader:

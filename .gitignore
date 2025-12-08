@@ -16,3 +16,4 @@ logs/
 *.png
 wandb/
 .wandb/
+*.ckpt
